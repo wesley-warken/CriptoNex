@@ -1,0 +1,85 @@
+import { describe, it, expect } from 'vitest';
+import {
+  buildMonData, evalCondition, evalFilter, PRESET_FILTERS,
+  type MonData, type MonFilter,
+} from '@/engine/monitor';
+import type { Candle } from '@/types';
+import type { UniverseCoin } from '@/services/universeTypes';
+
+function candlesFromCloses(closes: number[], tfMs = 86400000): Candle[] {
+  return closes.map((c, i) => ({ time: i * tfMs, open: c, high: c * 1.001, low: c * 0.999, close: c, volume: 1000 }));
+}
+function rising(n: number, step = 0.4, start = 100): number[] {
+  return Array.from({ length: n }, (_, i) => start + i * step);
+}
+const coin = (symbol: string, extra: Partial<UniverseCoin> = {}): UniverseCoin => ({
+  id: symbol.toLowerCase(), symbol, name: symbol, price: 100, marketCap: 1e9, volume24h: 1e6,
+  change1h: 0.2, change24h: 6, change7d: 10, change30d: 25, change1y: 100, ...extra,
+});
+
+describe('monitor', () => {
+  it('filtros prontos têm condições válidas', () => {
+    expect(PRESET_FILTERS.length).toBeGreaterThanOrEqual(8);
+    for (const f of PRESET_FILTERS) {
+      expect(f.conditions.length).toBeGreaterThan(0);
+      expect(f.name.length).toBeGreaterThan(0);
+    }
+  });
+  it('pullback em alta: tendência alta + RSI 4h sobrevendido', () => {
+    const f = PRESET_FILTERS.find((x) => x.id === 'pullback-alta')!;
+    // 200 closes horários em queda forte → RSI 4h? aqui testamos o resolver no diário
+    const d: MonData = {
+      symbol: 'T', trend: { '1d': { curto: 'Alta Forte', medio: 'Alta', longo: 'Alta', mudCurto: null, mudMedio: null, mudLongo: null }, '1h': null, '4h': null },
+      rsi: { '1h': 20, '4h': 25, '1d': 45, '1w': 50 },
+      stochK: { '1h': null, '4h': null, '1d': null, '1w': null },
+      stochD: { '1h': null, '4h': null, '1d': null, '1w': null },
+      macd: { '1h': null, '4h': null, '1d': 1, '1w': null },
+      super: { '1h': null, '4h': null, '1d': 'BULLISH', '1w': null },
+      attRatio: 1, attToday: 1, ma: null,
+    };
+    expect(evalFilter(d, f)).toBe(true);
+    expect(evalCondition(d, { indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 })).toBe(false);
+  });
+  it('supertrend resolve Alta=1 / Baixa=0', () => {
+    const d: MonData = {
+      symbol: 'T', trend: { '1d': null, '1h': null, '4h': null },
+      rsi: { '1h': null, '4h': null, '1d': null, '1w': null },
+      stochK: { '1h': null, '4h': null, '1d': null, '1w': null },
+      stochD: { '1h': null, '4h': null, '1d': null, '1w': null },
+      macd: { '1h': null, '4h': null, '1d': null, '1w': null },
+      super: { '1h': null, '4h': 'BULLISH', '1d': 'BEARISH', '1w': null },
+      attRatio: null, attToday: null, ma: null,
+    };
+    expect(evalCondition(d, { indicator: 'super', tf: '4h', field: 'dir', op: 'eq', value: 1 })).toBe(true);
+    expect(evalCondition(d, { indicator: 'super', tf: '1d', field: 'dir', op: 'eq', value: 1 })).toBe(false);
+  });
+  it('buildMonData monta tudo com klines sintéticos em alta', () => {
+    const c = coin('TST');
+    const d = buildMonData(c, {
+      '1h': candlesFromCloses(rising(200, 0.05), 3600000),
+      '4h': candlesFromCloses(rising(200, 0.2), 4 * 3600000),
+      '1d': candlesFromCloses(rising(250, 0.4)),
+      '1w': candlesFromCloses(rising(60, 2), 7 * 86400000),
+    });
+    expect(d.rsi['1d']).not.toBeNull();
+    expect(d.rsi['1d']!).toBeGreaterThan(50);
+    expect(d.trend['1d']?.curto).toBe('Alta Forte');
+    expect(d.super['1d']).toBe('BULLISH');
+    expect(d.ma).not.toBeNull();
+    const gold: MonFilter = { id: 'g', name: 'G', icon: '✅', color: 'green', conditions: [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'gt', value: 0 }] };
+    expect(evalFilter(d, gold)).toBe(true);
+  });
+  it('sem dados nada casa (sem falsos positivos)', () => {
+    const d: MonData = {
+      symbol: 'X', trend: { '1d': null, '1h': null, '4h': null },
+      rsi: { '1h': null, '4h': null, '1d': null, '1w': null },
+      stochK: { '1h': null, '4h': null, '1d': null, '1w': null },
+      stochD: { '1h': null, '4h': null, '1d': null, '1w': null },
+      macd: { '1h': null, '4h': null, '1d': null, '1w': null },
+      super: { '1h': null, '4h': null, '1d': null, '1w': null },
+      attRatio: null, attToday: null, ma: null,
+    };
+    for (const f of PRESET_FILTERS) expect(evalFilter(d, f)).toBe(false);
+    expect(evalFilter(d, { id: 'e', name: 'E', icon: '', color: 'blue', conditions: [] })).toBe(false);
+  });
+});

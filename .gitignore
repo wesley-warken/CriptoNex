@@ -1,0 +1,15 @@
+# dotcontext runtime state
+.context/plans/
+.context/cache/semantic/
+.context/runtime/
+.context/**/archive/
+
+# deps e logs locais
+node_modules/
+*.log
+dev-server.log
+
+# artefatos de runs de documentos (gerados localmente)
+output/
+working/
+

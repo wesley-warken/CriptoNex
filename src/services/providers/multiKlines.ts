@@ -1,0 +1,204 @@
+/**
+ * Klines multi-fonte (sem key): Binance → Kraken → Coinbase.
+ * Distribui a carga entre APIs em vez de forçar tudo numa só — se uma cai
+ * no rate-limit/bloqueio, a próxima assume. O CoinGecko continua como
+ * último fallback nos chamadores (com cache IDB).
+ */
+import { fetchWithTimeout } from '@/services/cache';
+import type { Candle } from '@/types';
+
+export type KlineInterval = '1h' | '4h' | '1d' | '1w';
+
+const BINANCE_TIMEOUT_MS = 6000;
+const ALT_TIMEOUT_MS = 6000;
+const COOLDOWN_MS = 5 * 60 * 1000;
+
+// Cooldown compartilhado: 1 probe decide pela sessão, sem timeout em massa.
+let binanceDownUntil = 0;
+
+/** true enquanto a Binance está em cooldown (probe falhou recentemente). */
+export function binanceCoolingDown(): boolean {
+  return Date.now() < binanceDownUntil;
+}
+
+/** Marca a Binance como fora por 5min (chamado só pelo probe, não por falha isolada). */
+export function noteBinanceDown(): void {
+  binanceDownUntil = Date.now() + COOLDOWN_MS;
+}
+
+/** Binance direto, 1 tentativa, falha rápido. `symbol` sem sufixo (ex.: BTC). */
+export async function binanceKlinesFast(symbol: string, interval: string, limit: number, minCandles = 30): Promise<Candle[] | null> {
+  try {
+    const r = await fetchWithTimeout(
+      `https://api.binance.com/api/v3/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`,
+      BINANCE_TIMEOUT_MS,
+    );
+    if (!r.ok) return null;
+    const raw = (await r.json()) as unknown[][];
+    const kl: Candle[] = raw.map((k) => ({
+      time: k[0] as number,
+      open: parseFloat(k[1] as string),
+      high: parseFloat(k[2] as string),
+      low: parseFloat(k[3] as string),
+      close: parseFloat(k[4] as string),
+      volume: parseFloat(k[5] as string),
+    }));
+    return kl.length >= minCandles ? kl : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Probe único e barato: testa a Binance uma vez e marca cooldown se falhar. */
+export async function probeBinance(): Promise<boolean> {
+  if (binanceCoolingDown()) return false;
+  const kl = await binanceKlinesFast('BTC', '1d', 5, 1);
+  if (kl && kl.length) return true;
+  noteBinanceDown();
+  return false;
+}
+
+// ---- Saúde das alternativas: 1 probe leve decide por 5min ----
+// Sem isso, cada moeda pagaria 6s de timeout por provedora morta.
+interface ProviderHealth {
+  ok: boolean;
+  until: number;
+  probing: Promise<boolean> | null;
+}
+
+const health: Record<'kraken' | 'coinbase', ProviderHealth> = {
+  kraken: { ok: true, until: 0, probing: null },
+  coinbase: { ok: true, until: 0, probing: null },
+};
+
+const HEALTH_URL: Record<'kraken' | 'coinbase', string> = {
+  kraken: 'https://api.kraken.com/0/public/Time',
+  coinbase: 'https://api.exchange.coinbase.com/products/BTC-USD/ticker',
+};
+
+async function providerHealthy(name: 'kraken' | 'coinbase'): Promise<boolean> {
+  const h = health[name];
+  if (Date.now() < h.until) return h.ok;
+  if (h.probing) return h.probing;
+  const run = (async () => {
+    try {
+      const r = await fetchWithTimeout(HEALTH_URL[name], ALT_TIMEOUT_MS);
+      h.ok = r.ok;
+    } catch {
+      h.ok = false;
+    }
+    h.until = Date.now() + COOLDOWN_MS;
+    h.probing = null;
+    return h.ok;
+  })();
+  h.probing = run;
+  return run;
+}
+
+const KRAKEN_INTERVAL: Record<KlineInterval, number | null> = { '1h': 60, '4h': 240, '1d': 1440, '1w': 10080 };
+
+/** Pares Kraken candidatos (aliases especiais + tentativa direta). */
+export function krakenPair(base: string): string[] {
+  const b = base.toUpperCase();
+  const special: Record<string, string> = { BTC: 'XBTUSD', USDT: 'USDTZUSD', USDC: 'USDCUSD', DAI: 'DAIUSD' };
+  const first = special[b] ?? `${b}USD`;
+  return first === `${b}USD` ? [first] : [first, `${b}USD`];
+}
+
+/** Linhas Kraken [time(s), o, h, l, c, vwap, vol, count] → candles. */
+export function parseKraken(json: unknown): Candle[] {
+  try {
+    const j = json as { error?: string[]; result?: Record<string, unknown[][]> };
+    if (!j || !j.result || (j.error && j.error.length)) return [];
+    const key = Object.keys(j.result).find((k) => k !== 'last');
+    const rows = (key ? j.result[key] : []) ?? [];
+    return rows
+      .map((r) => ({
+        time: Number(r[0]) * 1000,
+        open: parseFloat(String(r[1])),
+        high: parseFloat(String(r[2])),
+        low: parseFloat(String(r[3])),
+        close: parseFloat(String(r[4])),
+        volume: parseFloat(String(r[6])),
+      }))
+      .filter((c) => c.close > 0);
+  } catch {
+    return [];
+  }
+}
+
+async function krakenKlines(base: string, interval: KlineInterval, limit: number): Promise<Candle[] | null> {
+  const iv = KRAKEN_INTERVAL[interval];
+  if (iv == null) return null;
+  for (const pair of krakenPair(base)) {
+    try {
+      const r = await fetchWithTimeout(`https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${iv}`, ALT_TIMEOUT_MS);
+      if (!r.ok) continue;
+      const kl = parseKraken(await r.json()).slice(-limit);
+      if (kl.length >= 30) return kl;
+    } catch {
+      /* próximo par/provedor */
+    }
+  }
+  return null;
+}
+
+const CB_GRAN: Record<KlineInterval, number | null> = { '1h': 3600, '4h': 14400, '1d': 86400, '1w': null };
+
+/** Linhas Coinbase [time, low, high, open, close, volume] (ordem da API varia) → candles. */
+export function parseCoinbase(json: unknown): Candle[] {
+  try {
+    const rows = (Array.isArray(json) ? json : []) as unknown[][];
+    return rows
+      .map((r) => ({
+        time: Number(r[0]) * 1000,
+        open: Number(r[3]),
+        high: Number(r[2]),
+        low: Number(r[1]),
+        close: Number(r[4]),
+        volume: Number(r[5]),
+      }))
+      .filter((c) => c.close > 0)
+      .sort((a, b) => a.time - b.time);
+  } catch {
+    return [];
+  }
+}
+
+async function coinbaseKlines(base: string, interval: KlineInterval, limit: number): Promise<Candle[] | null> {
+  const g = CB_GRAN[interval];
+  if (g == null) return null;
+  try {
+    const r = await fetchWithTimeout(
+      `https://api.exchange.coinbase.com/products/${base.toUpperCase()}-USD/candles?granularity=${g}`,
+      ALT_TIMEOUT_MS,
+    );
+    if (!r.ok) return null;
+    const kl = parseCoinbase(await r.json()).slice(-limit);
+    return kl.length >= 30 ? kl : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Tenta Binance (se não estiver em cooldown) → Kraken → Coinbase.
+ * Provedoras mortas são puladas por 5min após 1 probe (sem timeout por moeda).
+ * Retorna null para o chamador aplicar o fallback CoinGecko com cache.
+ */
+export async function multiKlines(baseSymbol: string, interval: KlineInterval, limit: number, minCandles: number): Promise<Candle[] | null> {
+  const base = baseSymbol.toUpperCase();
+  if (!binanceCoolingDown()) {
+    const bn = await binanceKlinesFast(base, interval, limit, minCandles);
+    if (bn) return bn;
+  }
+  if (await providerHealthy('kraken')) {
+    const kr = await krakenKlines(base, interval, limit);
+    if (kr && kr.length >= minCandles) return kr;
+  }
+  if (await providerHealthy('coinbase')) {
+    const cb = await coinbaseKlines(base, interval, limit);
+    if (cb && cb.length >= minCandles) return cb;
+  }
+  return null;
+}
