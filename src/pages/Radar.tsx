@@ -16,7 +16,7 @@ import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
 import {
-  buildMonData, evalFilter, evalMonitor, loadFirstSeen, saveFirstSeen,
+  buildMonData, evalFilter, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen,
   MON_COLORS, MON_FIELDS, MON_ICONS, MON_INDICATORS, MON_OPS, MON_TFS, PRESET_FILTERS, TREND_LEVEL_OPTIONS,
   type MonColor, type MonCondition, type MonData, type MonFilter, type MonIndicator, type MonOp, type MonTf,
 } from '@/engine/monitor';
@@ -164,6 +164,7 @@ export function Radar() {
   const [monData, setMonData] = useState<Map<string, MonData>>(new Map());
   const [monFirstSeen, setMonFirstSeen] = useState<Record<string, number>>(() => loadFirstSeen());
   const [monRefresh, setMonRefresh] = useState(0);
+  const [monSecs, setMonSecs] = useState<number | null>(null);
   const [monListOpen, setMonListOpen] = useState(false);
   const [monBuilderOpen, setMonBuilderOpen] = useState(false);
   const blankDraft = (): { name: string; icon: string; color: MonColor; description: string; conditions: MonCondition[] } => ({
@@ -323,33 +324,39 @@ export function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, indTf, fetchN]);
 
-  // Monitor: avalia filtros (prontos + personalizados) no top-100
+  // Monitor: avalia filtros (prontos + personalizados) no top-N.
+  // Busca SÓ o que os filtros ativos exigem (1h/4h vêm do sparkline, grátis);
+  // resto usa multi-fonte + cache + SWR.
   useEffect(() => {
     if (tab !== 'MON') return;
     let alive = true;
     (async () => {
+      const t0 = Date.now();
       setIndProg({ done: 0, total: fetchN });
+      setMonSecs(null);
+      const plan = planMonitorData(activeMonFilters);
       const top = rows.filter((c) => (c.marketCap ?? 0) > 0).slice(0, fetchN);
       const data = new Map<string, MonData>();
       for (let i = 0; i < top.length; i += 8) {
         const batch = await Promise.all(
           top.slice(i, i + 8).map(async (c) => {
-            // 1h/4h do sparkline (instantâneo); 1d/1s da rede com cache
             const hourly = (c.spark7d ?? []).filter((v) => v > 0);
-            const [d1, w1] = await Promise.all([
-              ensureMaKlines([{ symbol: c.symbol, id: c.id }], '1d').then((m) => m.get(c.symbol) ?? null),
-              getIntervalKlines(c.symbol, c.id, '1w', 30, 60),
-            ]);
             const h1 = closesToCandles(hourly.slice(-120)) ?? null;
             const h4 = closesToCandles(sampleEvery(hourly, 4)) ?? null;
+            const [d1, w1] = await Promise.all([
+              plan.daily === 'none' ? null : plan.daily === 'ma'
+                ? ensureMaKlines([{ symbol: c.symbol, id: c.id }], '1d').then((m) => m.get(c.symbol) ?? null)
+                : getIntervalKlines(c.symbol, c.id, '1d', 60, 120),
+              plan.weekly ? getIntervalKlines(c.symbol, c.id, '1w', 30, 60) : null,
+            ]);
             return [c.symbol, buildMonData(c, { '1h': h1, '4h': h4, '1d': d1, '1w': w1 })] as const;
           }),
         );
         if (!alive) return;
         for (const [s, md] of batch) {
           data.set(s, md);
-            setMonData((prev) => new Map(prev).set(s, md));
-          }
+          setMonData((prev) => new Map(prev).set(s, md));
+        }
         setIndProg({ done: Math.min(i + 8, top.length), total: top.length });
       }
       if (!alive) return;
@@ -363,6 +370,7 @@ export function Radar() {
       }
       if (changed) saveFirstSeen(fs);
       setMonFirstSeen(fs);
+      setMonSecs(Math.max(1, Math.round((Date.now() - t0) / 1000)));
       setIndProg(null);
     })();
     return () => {
@@ -1027,7 +1035,7 @@ export function Radar() {
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <Badge tone="warn">rate limit — usando cache + backoff</Badge>}
               {indNote}
-              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}</span>)}
+              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}</span>)}
             </span>
           }
         >

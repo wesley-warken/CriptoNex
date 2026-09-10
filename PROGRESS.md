@@ -89,6 +89,11 @@ Aplicação local de análise de criptos e ações com 19 páginas funcionais, 4
 ### Radar — Performance com setinhas de ordenação
 - [x] Colunas 1h/24h/7d/30d/1a/Preço clicáveis (▼ maiores → ▲ menores), seta ⇅ sempre visível (09/09/2026)
 
+### Monitor absurdamente mais rápido (fetch condicional + SWR)
+- [x] `planMonitorData`: busca SÓ o que os filtros ativos exigem (1h/4h sempre do spark; semanal só se usado; MA-250 só com filtro de médias) — padrão cai de ~4 para ~1 call/moeda (10/09/2026)
+- [x] Stale-while-revalidate em `coinHistory`/`coinHistoryHours`/`getIntervalKlines`: dado morno serve na hora + atualiza em background
+- [x] Título mostra "avaliado em Xs"; 1 teste novo — 98/98 passando, `tsc` limpo
+
 ### Intradiário instantâneo via sparkline (sem fetch por moeda)
 - [x] Universo com sparkline em todas as páginas; Tendência 1h/4h, RSI/Stoch/BB/Super 1h/4h calculados localmente na hora (10/09/2026)
 - [x] Rede agora só para diário/semanal (multi-fonte + cache); Monitor usa spark p/ 1h/4h

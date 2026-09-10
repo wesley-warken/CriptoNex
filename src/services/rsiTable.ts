@@ -196,19 +196,7 @@ export async function ensureRsiTable(
  * diário reamostrado p/ 1s). Usado por Tendência, Stoch, Supertrend e Monitor.
  */
 export type AnyTf = '1h' | '4h' | '1d' | '1w';
-export async function getIntervalKlines(
-  symbol: string,
-  id: string,
-  interval: AnyTf,
-  minCandles: number,
-  limit: number,
-): Promise<Candle[] | null> {
-  try {
-    const hit = await idbGet<Candle[]>(rsiKey(symbol, interval));
-    if (hit && !hit.stale && hit.data.length >= minCandles) return hit.data;
-  } catch {
-    /* segue para rede */
-  }
+async function fetchIntervalKlines(symbol: string, id: string, interval: AnyTf, minCandles: number, limit: number): Promise<Candle[] | null> {
   const kl = await multiKlines(symbol, interval, limit, minCandles);
   if (kl) {
     await idbSet(rsiKey(symbol, interval), kl, TTL);
@@ -225,13 +213,36 @@ export async function getIntervalKlines(
     } else {
       closes = await coinHistory(id);
     }
-    const kl = closesToCandles(closes);
-    if (kl && kl.length >= minCandles) {
-      await idbSet(rsiKey(symbol, interval), kl, TTL);
-      return kl;
+    const fb = closesToCandles(closes);
+    if (fb && fb.length >= minCandles) {
+      await idbSet(rsiKey(symbol, interval), fb, TTL);
+      return fb;
     }
-    return kl;
+    return fb;
   } catch {
     return null;
   }
+}
+
+export async function getIntervalKlines(
+  symbol: string,
+  id: string,
+  interval: AnyTf,
+  minCandles: number,
+  limit: number,
+): Promise<Candle[] | null> {
+  try {
+    const hit = await idbGet<Candle[]>(rsiKey(symbol, interval));
+    if (hit && hit.data.length >= minCandles) {
+      if (!hit.stale) return hit.data;
+      // Stale com graça: serve na hora, atualiza em background
+      if (Date.now() - hit.ts < TTL) {
+        void fetchIntervalKlines(symbol, id, interval, minCandles, limit).catch(() => {});
+        return hit.data;
+      }
+    }
+  } catch {
+    /* segue para rede */
+  }
+  return fetchIntervalKlines(symbol, id, interval, minCandles, limit);
 }

@@ -227,6 +227,31 @@ export function evalMonitor(data: MonData[], filters: MonFilter[]): MonMatch[] {
   return out;
 }
 
+/** O que precisa ser buscado na rede para avaliar estes filtros (resto vem do universo/spark). */
+export interface MonDataPlan {
+  /** 'ma': diário 250 (médias) · 'kl': diário ~120 (indicadores) · 'none': nada */
+  daily: 'ma' | 'kl' | 'none';
+  weekly: boolean;
+}
+
+export function planMonitorData(filters: MonFilter[]): MonDataPlan {
+  let needMA = false;
+  let needDaily = false;
+  let needW = false;
+  for (const f of filters) {
+    for (const c of f.conditions) {
+      // Tendência nunca precisa de rede (1d: campos do universo · 1h/4h: sparkline)
+      if (c.indicator === 'trend') continue;
+      if (c.indicator === 'ma') needMA = true;
+      else if (c.indicator === 'attention') needDaily = true;
+      else if (c.tf === '1w') needW = true;
+      else if (c.tf === '1d') needDaily = true;
+      // 1h/4h (rsi/stoch/macd/super): sparkline do universo — zero fetch
+    }
+  }
+  return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW };
+}
+
 // ---- Filtros prontos ----
 const F = (
   id: string, name: string, icon: string, color: MonColor, description: string,

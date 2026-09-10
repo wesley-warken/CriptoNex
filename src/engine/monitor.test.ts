@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildMonData, evalCondition, evalFilter, PRESET_FILTERS,
+  buildMonData, evalCondition, evalFilter, planMonitorData, PRESET_FILTERS,
   type MonData, type MonFilter,
 } from '@/engine/monitor';
 import type { Candle } from '@/types';
@@ -81,5 +81,27 @@ describe('monitor', () => {
     };
     for (const f of PRESET_FILTERS) expect(evalFilter(d, f)).toBe(false);
     expect(evalFilter(d, { id: 'e', name: 'E', icon: '', color: 'blue', conditions: [] })).toBe(false);
+  });
+  it('plano de dados: só busca o que os filtros exigem', () => {
+    // Padrões: médias (golden/death) + diário + sem semanal
+    expect(planMonitorData(PRESET_FILTERS)).toEqual({ daily: 'ma', weekly: false });
+    // Só tendência/4h: nada de rede
+    expect(planMonitorData([{
+      id: 't', name: 'T', icon: '', color: 'blue',
+      conditions: [
+        { indicator: 'trend', tf: '1d', field: 'curto', op: 'gte', value: 3 },
+        { indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 },
+      ],
+    }])).toEqual({ daily: 'none', weekly: false });
+    // RSI diário sem médias: diário leve
+    expect(planMonitorData([{
+      id: 'r', name: 'R', icon: '', color: 'blue',
+      conditions: [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 }],
+    }])).toEqual({ daily: 'kl', weekly: false });
+    // Condição semanal liga o fetch 1s
+    expect(planMonitorData([{
+      id: 'w', name: 'W', icon: '', color: 'blue',
+      conditions: [{ indicator: 'rsi', tf: '1w', field: 'value', op: 'gte', value: 70 }],
+    }])).toEqual({ daily: 'none', weekly: true });
   });
 });
