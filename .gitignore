@@ -1,15 +1,15 @@
-# dotcontext runtime state
-.context/plans/
-.context/cache/semantic/
-.context/runtime/
-.context/**/archive/
+```
+# Build artifacts
+dist/
+build/
+*.js
 
-# deps e logs locais
+# Dependencies
 node_modules/
+
+# Editors
+.vscode/
+
+# Logs
 *.log
-dev-server.log
-
-# artefatos de runs de documentos (gerados localmente)
-output/
-working/
-
+```

@@ -1,6 +1,7 @@
 // Cache em memória (TTL 60s) + snapshot diário em localStorage.
 const mem = new Map<string, { data: unknown; exp: number }>();
 export const TTL_MS = 60_000;
+export const LONG_TTL_MS = 300_000; // 5 minutos para dados menos voláteis
 export function cacheGet<T>(key: string): T | null {
   const e = mem.get(key);
   if (!e) return null;
@@ -36,7 +37,7 @@ export async function withCache<T>(key: string, fn: () => Promise<T>, ttl = TTL_
     throw err;
   }
 }
-export async function fetchWithTimeout(url: string, ms = 12_000, init?: RequestInit): Promise<Response> {
+export async function fetchWithTimeout(url: string, ms = 8_000, init?: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -46,7 +47,7 @@ export async function fetchWithTimeout(url: string, ms = 12_000, init?: RequestI
 export async function retry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
   let last: unknown;
   for (let i = 0; i <= attempts; i++) {
-    try { return await fn(); } catch (e) { last = e; await new Promise((r) => setTimeout(r, 600 * (i + 1))); }
+    try { return await fn(); } catch (e) { last = e; await new Promise((r) => setTimeout(r, 400 * (i + 1))); }
   }
   throw last;
 }

@@ -112,3 +112,19 @@ export async function fetchMtfCandles(asset: ResolvedAsset, tf: BinanceInterval)
   if (tf === '1w') return (await yahooChart(ysym, '2y', '1wk')).candles;
   return (await yahooChart(ysym, '1y', '1d')).candles;
 }
+
+// Cache simples em memória para MTF (evita refazer requests idênticos em curto período)
+const mtfCache = new Map<string, { data: Candle[]; ts: number }>();
+const MTF_TTL = 30_000; // 30 segundos
+
+/** Candles só para leitura de tendência MTF com cache (curto/médio/longo). */
+export async function fetchMtfCandlesCached(asset: ResolvedAsset, tf: BinanceInterval): Promise<Candle[]> {
+  const key = `${asset.binanceSymbol || asset.yahooSymbol || asset.symbol}-${tf}`;
+  const cached = mtfCache.get(key);
+  if (cached && Date.now() - cached.ts < MTF_TTL) {
+    return cached.data;
+  }
+  const data = await fetchMtfCandles(asset, tf);
+  mtfCache.set(key, { data, ts: Date.now() });
+  return data;
+}

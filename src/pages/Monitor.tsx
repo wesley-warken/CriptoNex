@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { Candle } from '@/types';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { type BinanceInterval } from '@/services/providers/binance';
-import { fetchAssetCandles, fetchMtfCandles, mtfLabels, timeframesFor, type ResolvedAsset } from '@/services/assetCandles';
+import { fetchAssetCandles, fetchMtfCandles, fetchMtfCandlesCached, mtfLabels, timeframesFor, type ResolvedAsset } from '@/services/assetCandles';
 import { useLookup } from '@/components/analysis/AssetSearch';
 import { snapshot, calcSupertrend } from '@/engine/indicators';
 import { floorPivots, pivotZone, aggregateClosed } from '@/engine/pivots';
@@ -126,7 +126,7 @@ export function Monitor() {
       const out: typeof mtf = [];
       for (const dd of mtfLabels(resolved.kind)) {
         try {
-          const kl = dd.tf === tf ? candles : await fetchMtfCandles(resolved, dd.tf);
+          const kl = dd.tf === tf ? candles : await fetchMtfCandlesCached(resolved, dd.tf);
           if (!kl.length) continue;
           const last = kl[kl.length - 1].close;
           const st = calcSupertrend(kl);
