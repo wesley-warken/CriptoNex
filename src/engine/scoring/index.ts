@@ -1,6 +1,7 @@
 import type { Candle, MarketRegime, OpportunityScore, Signal } from '@/types';
 import { snapshot } from '@/engine/indicators';
 import { buildSignals } from '@/engine/signals';
+import { buildPlan } from '@/engine/scoring/plan';
 import { SCORING_WEIGHTS, classifyScore } from '@/engine/scoring/scoring.config';
 
 export interface ScoreInput {
@@ -99,7 +100,9 @@ export function scoreAsset(input: ScoreInput): OpportunityScore {
   if (dq < 55) risks.push('⚠ Baixa confiança nos dados');
 
   const signal: Signal = sig.signal;
-  return { symbol, score, classification: classifyScore(score), confidence, dataQuality: dq, timeframeAlignment, signal, breakdown, why, risks };
+  const stretchRaw =
+    snap.sma20 != null && snap.sma20 > 0 && price > 0 ? ((price - snap.sma20) / snap.sma20) * 100 : null;
+  return { symbol, score, classification: classifyScore(score), confidence, dataQuality: dq, timeframeAlignment, signal, breakdown, why, risks, plan: buildPlan(candles, signal, snap.atr ?? null), stretchRaw };
 }
 
 export function interpret(symbol: string, tf: string, o: OpportunityScore, regime: MarketRegime | null): string {

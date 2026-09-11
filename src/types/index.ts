@@ -71,6 +71,34 @@ export interface OpportunityScore {
   breakdown: { label: string; earned: number; max: number }[];
   why: string[];
   risks: string[];
+  /** Plano de trade (R:R) derivado de pivôs S/R — null quando S/R inválido. */
+  plan?: PlanData | null;
+  /** Desvio % vs SMA20 ((preço−SMA20)/SMA20·100) — base do percentil de atraso. */
+  stretchRaw?: number | null;
+  /** Confluência inter-TF do stage 2 do scanner — null antes de calculado. */
+  confluence?: ConfluenceData | null;
+}
+export interface PlanData {
+  entry: number;
+  stop: number;
+  target1: number;
+  target2: number;
+  rr1: number;
+  rr2: number;
+  /** (stop−entry)/entry·100 — negativo em compra, positivo em venda. */
+  stopPct: number;
+  /** Base usada (ex: "pivô semanal"). */
+  basis: string;
+}
+export interface ConfluenceData {
+  tfA: string;
+  dirA: TrendLabel;
+  tfB: string;
+  dirB: TrendLabel;
+  /** Ambos os TFs com mesma direção definida. */
+  full: boolean;
+  /** Bônus 0–15 somado ao score. */
+  bonus: number;
 }
 export interface MarketRegime {
   label: RegimeLabel;

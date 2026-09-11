@@ -1,8 +1,10 @@
-import type { OpportunityScore } from '@/types';
+import type { OpportunityScore, TrendLabel } from '@/types';
 import type { UniverseCoin } from '@/services/universeTypes';
 import { binanceKlines } from '@/services/providers/binance';
 import { scoreAsset } from '@/engine/scoring';
 import { scorePartial } from '@/engine/scoring/partial';
+import { tfDirection, applyConfluence } from '@/engine/scoring/confluence';
+import { fetchMtfCandles, type ResolvedAsset } from '@/services/assetCandles';
 import { coinHistory } from '@/services/history';
 import { yahooChart } from '@/services/lookup';
 import { fetchWithTimeout } from '@/services/cache';
@@ -33,10 +35,20 @@ export interface StockScanState {
   error: string | null;
 }
 
+/** Stage 2 (confluência multi-TF): progresso da segunda passada. */
+export interface ConfState {
+  running: boolean;
+  scanned: number;
+  total: number;
+  withConf: number;
+  errors: number;
+}
+
 export interface ScanSnapshot extends ScanState {
   results: OpportunityScore[];
   stockResults: OpportunityScore[];
   stock: StockScanState;
+  conf: ConfState;
 }
 
 export interface StockScanItem {
@@ -58,14 +70,21 @@ export function orderB3Queue(b3: { symbol: string; name: string }[]): StockScanI
 }
 
 /** EUA: megacaps primeiro (relevância), depois alfabética — cobre as ~13k. */
-export function orderUsQueue(us: { symbol: string; name: string; exchange: string }[]): StockScanItem[] {
-  const rank = (s: string) => {
+export function orderUsQueue(us: { symbol: string; name: string; exchange: string }[]): StockScanItem[] {  const rank = (s: string) => {
     const i = US_MEGACAPS.indexOf(s);
     return i === -1 ? 1000 : i;
   };
   return [...us]
     .sort((x, y) => rank(x.symbol) - rank(y.symbol) || x.symbol.localeCompare(y.symbol))
     .map((r) => ({ symbol: r.symbol, yahoo: r.symbol, exchange: r.exchange, name: r.name }));
+}
+
+/** Exchange derivada do símbolo Yahoo p/ scores sob demanda ("Meus ativos").
+ *  `*.SA` → B3; demais casos → '' (desconhecida, sem chute). */
+export function exchangeOfYahoo(yahoo: string): string {
+  const y = yahoo.trim().toUpperCase();
+  if (y.endsWith('.SA')) return 'B3';
+  return '';
 }
 
 let pairSet: Set<string> | null = null;
@@ -88,6 +107,20 @@ async function usdtPairs(): Promise<Set<string>> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Stage 2: só candidatos (score alto ou top N) para respeitar rate limit. */
+export const CONF_MIN_SCORE = 70;
+export const CONF_MAX = 300;
+const CONF_TTL_MS = 45 * 60 * 1000;
+const CONF_GAP_MS = 1500;
+
+interface ConfCache {
+  dirA: TrendLabel;
+  dirB: TrendLabel;
+  tfA: string;
+  tfB: string;
+}
+const confKey = (symbol: string) => `cc.conf:v1:${symbol}`;
+
 /** Varredura de ações: Yahoo 6mo por símbolo (rápido). O detalhe de 1y fica para a análise individual. */
 const STOCK_RANGE = '6mo';
 const stockFailAt = new Map<string, number>();
@@ -96,15 +129,19 @@ const STOCK_FAIL_COOLDOWN = 60 * 60 * 1000;
 class Scanner {
   state: ScanState = { running: false, phase: 'idle', scanned: 0, total: 0, withScore: 0, error: null };
   stockState: StockScanState = { running: false, scanned: 0, total: 0, withScore: 0, error: null };
+  confState: ConfState = { running: false, scanned: 0, total: 0, withConf: 0, errors: 0 };
   results = new Map<string, OpportunityScore>();
   stockResults = new Map<string, OpportunityScore>();
+  /** Yahoo por símbolo (stage 2 precisa refazer a leitura MTF das ações). */
+  stockYahoo = new Map<string, string>();
   listeners = new Set<(s: ScanSnapshot) => void>();
   private abort: AbortController | null = null;
   private stockAbort: AbortController | null = null;
+  private confAbort: AbortController | null = null;
   private started = false;
 
   snap(): ScanSnapshot {
-    return { ...this.state, results: [...this.results.values()], stockResults: [...this.stockResults.values()], stock: { ...this.stockState } };
+    return { ...this.state, results: [...this.results.values()], stockResults: [...this.stockResults.values()], stock: { ...this.stockState }, conf: { ...this.confState } };
   }
   private emit() {
     const s = this.snap();
@@ -230,6 +267,8 @@ class Scanner {
       this.state.phase = 'done';
       this.persist();
       this.emit();
+      // Stage 2 (fundo): confluência multi-TF dos candidatos (com cache IDB).
+      void this.startConfluence();
     } catch (e) {
       this.state.error = e instanceof Error ? e.message : 'Scanner falhou';
       this.emit();
@@ -276,6 +315,7 @@ class Scanner {
                 return null;
               }
               stockFailAt.delete(it.symbol);
+              this.stockYahoo.set(it.symbol, it.yahoo);
               return scoreAsset({ symbol: it.symbol, candles: q.candles });
             } catch {
               stockFailAt.set(it.symbol, Date.now());
@@ -308,6 +348,8 @@ class Scanner {
       }
       this.persistStocks();
       this.emit();
+      // Stage 2 (fundo): confluência das ações candidatas (com cache IDB).
+      void this.startConfluence();
     } catch (e) {
       this.stockState.error = e instanceof Error ? e.message : 'Scan de ações falhou';
       this.emit();
@@ -323,6 +365,100 @@ class Scanner {
     this.persistStocks();
     this.emit();
   }
+
+  /**
+   * Stage 2 — confluência multi-TF em funil (fundo, pausável).
+   * Candidatos: score ≥ 70 ou top 300 por mapa. Crypto lê 4h+1d;
+   * ações 1h+1d. Cache IDB 45min: reruns custam ~zero requests.
+   */
+  async startConfluence() {
+    await this.boot();
+    if (this.confState.running) return;
+    const top = (m: Map<string, OpportunityScore>) =>
+      [...m.values()]
+        .filter((o) => o.score >= CONF_MIN_SCORE && !o.confluence)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, CONF_MAX);
+    const queue: { o: OpportunityScore; kind: 'crypto' | 'stock' }[] = [
+      ...top(this.results).map((o) => ({ o, kind: 'crypto' as const })),
+      ...top(this.stockResults).map((o) => ({ o, kind: 'stock' as const })),
+    ];
+    if (!queue.length) return;
+    this.confAbort = new AbortController();
+    this.confState = { running: true, scanned: this.confState.withConf, total: this.confState.withConf + queue.length, withConf: this.confState.withConf, errors: 0 };
+    this.emit();
+    let badStreak = 0;
+    let sincePersist = 0;
+    try {
+      const pairs = await usdtPairs();
+      for (const item of queue) {
+        if (this.confAbort.signal.aborted) return;
+        const { o, kind } = item;
+        try {
+          const key = confKey(o.symbol);
+          const cached = await idbGet<ConfCache>(key);
+          let tfA: '4h' | '1h';
+          let dirA: TrendLabel;
+          let tfB: '1d';
+          let dirB: TrendLabel;
+          if (cached && !cached.stale) {
+            ({ tfA, dirA, tfB, dirB } = cached.data as { tfA: '4h' | '1h'; dirA: TrendLabel; tfB: '1d'; dirB: TrendLabel });
+          } else {
+            let asset: ResolvedAsset;
+            if (kind === 'crypto') {
+              const pair = `${o.symbol}USDT`;
+              if (!pairs.has(pair)) continue;
+              asset = { symbol: o.symbol, kind: 'crypto', binanceSymbol: pair, yahooSymbol: null };
+              tfA = '4h';
+              tfB = '1d';
+            } else {
+              const yahoo = this.stockYahoo.get(o.symbol);
+              if (!yahoo) continue;
+              asset = { symbol: o.symbol, kind: 'stock', binanceSymbol: null, yahooSymbol: yahoo };
+              tfA = '1h';
+              tfB = '1d';
+            }
+            const [klA, klB] = await Promise.all([fetchMtfCandles(asset, tfA), fetchMtfCandles(asset, tfB)]);
+            dirA = tfDirection(klA);
+            dirB = tfDirection(klB);
+            await idbSet(key, { dirA, dirB, tfA, tfB } satisfies ConfCache, CONF_TTL_MS);
+          }
+          const next = applyConfluence(o, tfA, dirA, tfB, dirB);
+          (kind === 'crypto' ? this.results : this.stockResults).set(o.symbol, next);
+          this.confState.withConf += 1;
+          badStreak = 0;
+          sincePersist += 1;
+          if (sincePersist >= 25) {
+            sincePersist = 0;
+            this.persist();
+            this.persistStocks();
+          }
+        } catch {
+          this.confState.errors += 1;
+          badStreak += 1;
+          if (badStreak >= 3) {
+            await sleep(YAHOO_BACKOFF_MS);
+            badStreak = 0;
+          }
+        }
+        this.confState.scanned += 1;
+        this.emit();
+        await sleep(CONF_GAP_MS);
+      }
+      this.persist();
+      this.persistStocks();
+      this.emit();
+    } finally {
+      this.confState.running = false;
+      this.emit();
+    }
+  }
+
+  pauseConfluence() {
+    this.confAbort?.abort();
+    this.confState.running = false;
+    this.emit();
+  }
 }
 
 /** Pontua um punhado de símbolos (Meus ativos) sob demanda. */
@@ -336,6 +472,7 @@ export async function scoreStockSymbols(items: StockScanItem[]): Promise<Opportu
         try {
           const q = await yahooChart(it.yahoo, '1y', '1d');
           if (q.candles.length < 60) return null;
+          scanner.stockYahoo.set(it.symbol, it.yahoo);
           return scoreAsset({ symbol: it.symbol, candles: q.candles });
         } catch {
           return null;

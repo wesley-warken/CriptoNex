@@ -116,5 +116,8 @@ export function scorePartial(input: PartialInput): OpportunityScore | null {
   return {
     symbol, score, classification: classifyScore(score), confidence,
     dataQuality: dq, timeframeAlignment: 50, signal, breakdown, why, risks,
+    // Sem OHLC não há pivôs S/R honestos → sem plano (badge na UI).
+    plan: null,
+    stretchRaw: sma20 != null && sma20 > 0 ? ((price - sma20) / sma20) * 100 : null,
   };
 }

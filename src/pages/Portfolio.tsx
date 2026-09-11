@@ -32,6 +32,8 @@ export function Portfolio() {
   const addWallet = useStore((s) => s.addWallet);
   const renameWallet = useStore((s) => s.renameWallet);
   const removeWallet = useStore((s) => s.removeWallet);
+  const pendingOp = useStore((s) => s.pendingOp);
+  const setPendingOp = useStore((s) => s.setPendingOp);
 
   // ---- filtros ----
   const [fWallet, setFWallet] = useState('ALL');
@@ -141,6 +143,16 @@ export function Portfolio() {
     fearGreed(2).then((r) => setFg(r.current)).catch(() => {});
   }, []);
 
+  // Pré-preenchimento vindo da aba Oportunidades ("operar" na linha).
+  useEffect(() => {
+    if (pendingOp) {
+      setSymbol(pendingOp.symbol);
+      setKind(pendingOp.kind);
+      setSide('buy');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (m.loading && !m.data.length) return <Skeleton className="h-72" />;
   if (m.error && !m.data.length) return <ErrorBox message={m.error} onRetry={m.reload} />;
 
@@ -155,8 +167,14 @@ export function Portfolio() {
       updateOperation(editingId, { walletId, kind, symbol: symbol.trim().toUpperCase(), side, quantity: qn, price: pn, date, note });
       setEditingId(null);
     } else {
-      const o: Operation = { id: `${Date.now()}`, walletId, kind, symbol: symbol.trim().toUpperCase(), side, quantity: qn, price: pn, date, note };
+      const sym = symbol.trim().toUpperCase();
+      const meta =
+        pendingOp && pendingOp.symbol === sym
+          ? { entryTier: pendingOp.tier, entryScore: pendingOp.score, entryRR: pendingOp.rr, entryStretch: pendingOp.stretch, entryConfFull: pendingOp.confFull }
+          : {};
+      const o: Operation = { id: `${Date.now()}`, walletId, kind, symbol: sym, side, quantity: qn, price: pn, date, note, ...meta };
       addOperation(o);
+      if (pendingOp && pendingOp.symbol === sym) setPendingOp(null);
     }
     setQty('');
     setPrice('');
@@ -363,9 +381,19 @@ export function Portfolio() {
             </div>
           )}
         </div>
+        {pendingOp && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--accent)] px-3 py-2 text-sm">
+            <span>
+              Vindo de <strong>Oportunidades</strong>: <strong>{pendingOp.symbol}</strong> · tier {pendingOp.tier} · score {pendingOp.score}
+              {pendingOp.rr != null ? ` · R:R ${pendingOp.rr.toFixed(1)}` : ''}
+              {pendingOp.confFull ? ' · confluência total' : ''}
+            </span>
+            <span className="text-xs text-muted">— o contexto será gravado na operação ao salvar.</span>
+            <button onClick={() => setPendingOp(null)} className="ml-auto text-xs text-muted hover:underline">dispensar</button>
+          </div>
+        )}
         <div className="grid gap-2 md:grid-cols-8">
-          <div className="flex overflow-hidden rounded border border-[var(--border)] text-sm">
-            {(['buy', 'sell'] as const).map((s) => (
+          <div className="flex overflow-hidden rounded border border-[var(--border)] text-sm">            {(['buy', 'sell'] as const).map((s) => (
               <button key={s} onClick={() => setSide(s)} className={s === side ? 'flex-1 bg-[var(--accent)] py-1.5 font-bold text-black' : 'flex-1 py-1.5 text-muted'}>{s === 'buy' ? 'Aporte' : 'Retirada'}</button>
             ))}
           </div>

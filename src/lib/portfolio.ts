@@ -1,5 +1,6 @@
 export type OpSide = 'buy' | 'sell';
 export type AssetKind = 'crypto' | 'stock';
+import type { Conviction } from '@/engine/ranking';
 
 export interface Wallet {
   id: string;
@@ -17,6 +18,12 @@ export interface Operation {
   price: number;
   date: string;
   note?: string;
+  /** Contexto da aba Oportunidades no momento da criação (Fase 4). */
+  entryTier?: Conviction;
+  entryScore?: number;
+  entryRR?: number | null;
+  entryStretch?: number | null;
+  entryConfFull?: boolean;
 }
 
 export interface PositionSummary {
@@ -92,6 +99,55 @@ export interface PortfolioTotals {
   unrealized: number;
   headline: number;
   headlinePct: number;
+}
+
+export interface TierTradeStats {
+  trades: number;
+  wins: number;
+  pnl: number;
+}
+
+/**
+ * Win rate e PnL por tier de entrada (Fase 4): vendas casadas por FIFO aos
+ * lotes de compra; cada venda conta 1 trade no tier de pluralidade dos
+ * lotes consumidos; PnL é atribuído por fração exata. Sem tag → 'SEM_TAG'.
+ */
+export function statsByEntryTier(ops: Operation[]): { byTier: Record<string, TierTradeStats>; closedTrades: number } {
+  const byTier: Record<string, TierTradeStats> = {};
+  const lots = new Map<string, { qty: number; price: number; tier: string }[]>();
+  const bucket = (t: string): TierTradeStats => (byTier[t] ??= { trades: 0, wins: 0, pnl: 0 });
+  let closedTrades = 0;
+  for (const o of [...ops].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (o.quantity <= 0 || o.price < 0) continue;
+    if (o.side === 'buy') {
+      const q = lots.get(o.symbol) ?? [];
+      q.push({ qty: o.quantity, price: o.price, tier: o.entryTier ?? 'SEM_TAG' });
+      lots.set(o.symbol, q);
+    } else {
+      const q = lots.get(o.symbol) ?? [];
+      const held = q.reduce((s, l) => s + l.qty, 0);
+      let left = Math.min(o.quantity, held);
+      if (!(left > 0)) continue;
+      const used = new Map<string, number>();
+      let pnl = 0;
+      while (left > 1e-9 && q.length) {
+        const lot = q[0];
+        const take = Math.min(left, lot.qty);
+        pnl += take * (o.price - lot.price);
+        used.set(lot.tier, (used.get(lot.tier) ?? 0) + take);
+        lot.qty -= take;
+        left -= take;
+        if (lot.qty <= 1e-9) q.shift();
+      }
+      const tier = [...used.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      const b = bucket(tier);
+      b.trades += 1;
+      b.pnl += pnl;
+      if (pnl > 0) b.wins += 1;
+      closedTrades += 1;
+    }
+  }
+  return { byTier, closedTrades };
 }
 
 /**
