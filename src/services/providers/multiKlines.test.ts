@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { krakenPair, parseCoinbase, parseKraken } from '@/services/providers/multiKlines';
+import { isFresh, krakenPair, parseCoinbase, parseKraken } from '@/services/providers/multiKlines';
+import type { Candle } from '@/types';
+
+const candleAt = (time: number): Candle => ({ time, open: 1, high: 1, low: 1, close: 1, volume: 1 });
 
 describe('multiKlines (parse + pares)', () => {
   it('mapeia pares especiais da Kraken com fallback direto', () => {
@@ -30,5 +33,18 @@ describe('multiKlines (parse + pares)', () => {
     expect(kl).toHaveLength(2);
     expect(kl[0].time).toBeLessThan(kl[1].time);
     expect(kl[1]).toMatchObject({ open: 78283.98, high: 78554.18, low: 76630.13, close: 76743.77 });
+  });
+  it('frescor: rejeita par morto (XMR congelado em 2024) e aceita ao vivo', () => {
+    const now = Date.now();
+    const frozen2024 = [candleAt(new Date('2024-02-18T16:00:00Z').getTime())];
+    expect(isFresh(frozen2024, '4h')).toBe(false);
+    expect(isFresh(frozen2024, '1d')).toBe(false);
+    expect(isFresh(frozen2024, '1w')).toBe(false);
+    expect(isFresh([candleAt(now - 3600_000)], '1h')).toBe(true);
+    expect(isFresh([candleAt(now - 3600_000)], '4h')).toBe(true);
+    expect(isFresh([candleAt(now - 2 * 24 * 3600_000)], '1d')).toBe(true);
+    expect(isFresh([candleAt(now - 30 * 3600_000)], '1h')).toBe(false);
+    expect(isFresh([], '1d')).toBe(false);
+    expect(isFresh(null, '1d')).toBe(false);
   });
 });

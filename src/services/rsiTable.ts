@@ -47,7 +47,7 @@ const TF_MAP: { tf: RsiTf; interval: KlineInterval }[] = [
   { tf: 'w1', interval: '1w' },
 ];
 
-const rsiKey = (symbol: string, interval: string) => `cc.quotes.cache:rsi:${symbol}:${interval}`;
+const rsiKey = (symbol: string, interval: string) => `cc.quotes.cache:rsi2:${symbol}:${interval}`;
 
 function snapOfTf(kl: Candle[] | null): { rsi: number | null; avg: number | null } {
   if (!kl || kl.length < 30) return { rsi: null, avg: null };
@@ -151,7 +151,7 @@ export async function ensureRsiTable(
         // Multi-fonte (Binance→Kraken→Coinbase, com cooldown compartilhado); CoinGecko abaixo
         await Promise.all(
           TF_MAP.filter(({ tf }) => !klByTf.has(tf)).map(async ({ tf, interval }) => {
-            const kl = await multiKlines(it.symbol, interval, KLINES_LIMIT, 30);
+              const kl = (await multiKlines(it.symbol, interval, KLINES_LIMIT, 30))?.klines ?? null;
             if (kl) {
               klByTf.set(tf, kl);
               await idbSet(rsiKey(it.symbol, interval), kl, TTL);
@@ -197,7 +197,7 @@ export async function ensureRsiTable(
  */
 export type AnyTf = '1h' | '4h' | '1d' | '1w';
 async function fetchIntervalKlines(symbol: string, id: string, interval: AnyTf, minCandles: number, limit: number): Promise<Candle[] | null> {
-  const kl = await multiKlines(symbol, interval, limit, minCandles);
+  const kl = (await multiKlines(symbol, interval, limit, minCandles))?.klines ?? null;
   if (kl) {
     await idbSet(rsiKey(symbol, interval), kl, TTL);
     return kl;

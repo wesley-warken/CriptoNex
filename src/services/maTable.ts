@@ -16,7 +16,7 @@ const MA_MIN_CANDLES = 210;
 const MA_LIMIT = 250;
 const MA_TTL = 2 * 60 * 60 * 1000;
 
-const maKey = (symbol: string) => `cc.quotes.cache:ma:${symbol}`;
+const maKey = (symbol: string) => `cc.quotes.cache:ma2:${symbol}`;
 
 /** Lentas do cruzamento (exclui a rápida quando coincide). */
 export function slowsFor(fast: MaFast): number[] {
@@ -71,7 +71,8 @@ async function maDaily(symbol: string, id: string): Promise<Candle[] | null> {
   } catch {
     /* segue para rede */
   }
-  const kl = await multiKlines(symbol, '1d', MA_LIMIT, MA_MIN_CANDLES);
+  const res = await multiKlines(symbol, '1d', MA_LIMIT, MA_MIN_CANDLES);
+  const kl = res?.klines ?? null;
   if (kl) {
     await idbSet(maKey(symbol), kl, MA_TTL);
     return kl;

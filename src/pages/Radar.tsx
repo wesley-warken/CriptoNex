@@ -11,9 +11,9 @@ import { computeMaSet, ensureMaKlines, maCrossDiff, maCrossTitle, slowsFor, MA_F
 import { isActiveCoin, isStablecoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle } from '@/types';
 import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
-import { BarChart3, Filter, Globe, Info, ListPlus, Maximize2, RotateCw, Star, TrendingUp } from 'lucide-react';
+import { BarChart3, Bell, Filter, Globe, Info, ListPlus, Maximize2, RotateCw, Star, TrendingUp } from 'lucide-react';
 import { MarketStrip } from '@/components/analysis/MarketStrip';
-import { fmtUSD, fmtPct } from '@/lib/format';
+import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
 import {
   buildMonData, evalFilter, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen,
@@ -161,6 +161,7 @@ export function Radar() {
   const [monMode, setMonMode] = useState<'realtime' | 'business'>('realtime');
   const [monFavOnly, setMonFavOnly] = useState(false);
   const [monExpanded, setMonExpanded] = useState(false);
+  const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== 'undefined' ? Notification.permission : 'denied'));
   const [monData, setMonData] = useState<Map<string, MonData>>(new Map());
   const [monFirstSeen, setMonFirstSeen] = useState<Record<string, number>>(() => loadFirstSeen());
   const [monRefresh, setMonRefresh] = useState(0);
@@ -726,7 +727,7 @@ export function Radar() {
         return (<>
           <span className="tabular text-xs text-muted">{rankMap.get(d.symbol) ?? idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular">{fmtUSD(d.price, d.price < 1 ? 4 : 2)}</span>
+          <span className="tabular">{fmtPrice(d.price)}</span>
           <span>{pill(d.change1h)}</span><span>{pill(d.change24h)}</span><span>{pill(d.change7d)}</span>
           <span>{pill(d.change30d)}</span><span>{pill(d.change1y)}</span>
           {cellFav(d)}
@@ -753,7 +754,7 @@ export function Radar() {
         return (<>
           {cellAsset(d)}
           <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtUSD(d.price, d.price < 1 ? 4 : 2)}</span>
+          <span className="tabular">{fmtPrice(d.price)}</span>
           {RSI_COLS.map((c) => <span key={c.k}>{rsiCell(r?.[c.k])}</span>)}
           {cellFav(d)}
         </>);
@@ -780,7 +781,7 @@ export function Radar() {
           {SUPER_TFS.flatMap((t) => {
             const p = s?.[t.k];
             return [
-              <span key={`${t.k}-v`} className="tabular">{p?.value != null ? fmtUSD(p.value, p.value < 1 ? 4 : 2) : '—'}</span>,
+              <span key={`${t.k}-v`} className="tabular">{p?.value != null ? fmtPrice(p.value) : '—'}</span>,
               <span key={`${t.k}-t`}>{superDirPill(p?.dir ?? null)}</span>,
             ];
           })}
@@ -792,7 +793,7 @@ export function Radar() {
         return (<>
           {cellAsset(d)}
           <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtUSD(d.price, d.price < 1 ? 4 : 2)}</span>
+          <span className="tabular">{fmtPrice(d.price)}</span>
           <span className="tabular" style={toneUpDown(a?.todayPct)}>{a ? fmtPct(a.todayPct) : '—'}</span>
           <span className="tabular">{a ? fmtPct(a.avg10) : '—'}</span>
           <span className="tabular font-bold">{a ? `${a.ratio.toFixed(1)}×` : '—'}</span>
@@ -821,7 +822,7 @@ export function Radar() {
         return (<>
           {cellAsset(d)}
           <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtUSD(d.price, d.price < 1 ? 4 : 2)}</span>
+          <span className="tabular">{fmtPrice(d.price)}</span>
           <span>
             {b.upper == null ? dash : (
               <span
@@ -856,7 +857,7 @@ export function Radar() {
         const set = maVals.get(d.symbol);
         return (<>
           {cellAsset(d)}
-          <span className="tabular">{fmtUSD(d.price, d.price < 1 ? 4 : 2)}</span>
+          <span className="tabular">{fmtPrice(d.price)}</span>
           {slowsFor(fast).map((s) => {
             const diff = maCrossDiff(set ?? null, kind, fast, s);
             return (
@@ -885,8 +886,8 @@ export function Radar() {
         return (<>
           <span className="tabular text-xs text-muted">{idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular">{hi != null ? fmtUSD(hi, d.price < 1 ? 4 : 2) : '—'}</span>
-          <span className="tabular">{lo != null ? fmtUSD(lo, d.price < 1 ? 4 : 2) : '—'}</span>
+          <span className="tabular">{hi != null ? fmtPrice(hi) : '—'}</span>
+          <span className="tabular">{lo != null ? fmtPrice(lo) : '—'}</span>
           <span className="tabular">{dist != null ? `-${dist.toFixed(1)}% do topo` : '—'}</span>
           {cellFav(d)}
         </>);
@@ -933,6 +934,20 @@ export function Radar() {
               style={{ background: 'color-mix(in srgb, var(--up) 12%, transparent)' }}
             >
               <Filter size={14} />
+            </button>
+            <button
+              onClick={async () => {
+                if (typeof Notification === 'undefined') return;
+                try {
+                  setNotifPerm(await Notification.requestPermission());
+                } catch {
+                  /* negado */
+                }
+              }}
+              title={notifPerm === 'granted' ? 'Alertas desktop ativos: a vigia avisa de qualquer página' : 'Ativar alertas desktop do monitor'}
+              className={`rounded-lg border p-2 ${notifPerm === 'granted' ? 'border-[var(--up)] text-[var(--up)]' : 'border-[var(--border)] text-muted'}`}
+            >
+              <Bell size={14} fill={notifPerm === 'granted' ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => { setMonDraft(blankDraft()); setMonBuilderOpen(true); }}

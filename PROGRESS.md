@@ -89,6 +89,91 @@ Aplicação local de análise de criptos e ações com 19 páginas funcionais, 4
 ### Radar — Performance com setinhas de ordenação
 - [x] Colunas 1h/24h/7d/30d/1a/Preço clicáveis (▼ maiores → ▲ menores), seta ⇅ sempre visível (09/09/2026)
 
+### Viewport colapsado em 1 vela (300 candles carregados)
+- [x] Causa: dados OK (300/binance/frescos); viewport travava em 1 barra (10/09/2026)
+- [x] Auto-cura: após carga cheia, se visível <5 barras com 10+ na série, reenquadra (zoom manual posterior respeitado)
+- [x] `tsc` limpo, 104/104 passando
+
+### Gráfico com 1 candle só (diagnóstico + blindagem)
+- [x] Pipeline saneado: filtra inválidos, ordena, remove tempos duplicados, try/catch com fallback (10/09/2026)
+- [x] `multiKlines` retorna fonte; Monitor exibe "N candles · via {fonte} · último {data/hora Brasília}"
+- [x] `tsc` limpo, 104/104 passando
+
+### Monitor travando o site (backtest O(N²) a cada tick)
+- [x] Causa: `backtest` roda `scoreAsset` por candle; com 1000 velas + ticks 1,5s travava a thread (10/09/2026)
+- [x] Separação: gráfico exibe até 1000 ao vivo; score/sinais/backtest rodam nos 300 recentes, só em load/poll
+- [x] `tsc` limpo, 104/104 passando
+
+### Gráfico com até 1000 barras (era 300)
+- [x] Crypto: limite 300 → 1000 (1d ≈ 2,7 anos; 1h ≈ 41 dias); ações 1d 1a → 5a (10/09/2026)
+- [x] `tsc` limpo, 104/104 passando
+
+### Crosshair mostrava hora no diário (formato fixo data+hora da v4)
+- [x] Causa: `date + " " + time` é fixo na lib; `timeFormatter` custom: BusinessDay → só data, timestamp → data+hora BRT (10/09/2026)
+- [x] Validado com print headless (hover mostra "09 jun. '24")
+- [x] 2 testes novos — 106/106 passando, `tsc` limpo
+
+### Vigia do Monitor em background (eventos não passam mais batido)
+- [x] `useMonitorWatch` no Shell: avalia filtros ativos a cada 5min em qualquer página, carimba estreias (10/09/2026)
+- [x] Notificação desktop nas estreias (sino pede permissão) + 3 testes
+- [x] `tsc` limpo, 113/113 passando
+
+### Preços minúsculos aparecem ($0.00 → valor real)
+- [x] `fmtPrice`/`fmtPriceNum` adaptativos: ≥1 2 casas, ≥0,01 4 casas, abaixo zeros+4 significativos (ex.: SHIB $0.00001234) (10/09/2026)
+- [x] Aplicado em Monitor (preço, pivôs, trade plan), Radar (Performance/RSI/BB/SMA/EMA/Super/SR) e Dashboard
+- [x] 1 teste novo — 110/110 passando, `tsc` limpo
+
+### Sessões reais de 4h (fecha 21h/17h/13h... BRT)
+- [x] Reamostragem alinhada por parede UTC (blocos 00/04/08...); parcial vira vela em formação (10/09/2026)
+- [x] Validado com print (último 10/09 17:00 com agora 20:20)
+- [x] 3 testes novos — 109/109 passando, `tsc` limpo
+
+### 4h sumia (fallback Yahoo virava stock sem 4h)
+- [x] Causa: sem exchanges, Yahoo diário vencia e o kind flipava p/ stock (sem botão 4h) (10/09/2026)
+- [x] Yahoo 60m reamostrado ×4 (`resampleCandles`); `XXX-USD` vencendo mantém kind crypto
+- [x] Validado com print headless (553 candles 4h, último de hoje)
+- [x] 2 testes novos — 108/108 passando, `tsc` limpo
+
+### Eixo diário limpo (só data, sem 21:00:00)
+- [x] Diário/semanal usam BusinessDay (data BRT); intradiário mantém data+hora (10/09/2026)
+- [x] 1 teste novo — 105/105 passando, `tsc` limpo
+
+### Horas 00:00:00 no hover (lib renderiza em UTC)
+- [x] Causa: lightweight-charts v4 usa `getUTCHours` (sempre UTC); deslocamento relativo zerava p/ quem está em UTC-3 (10/09/2026)
+- [x] `shiftToBrasilia` agora fixo −3h, com teste independente de fuso
+- [x] `tsc` limpo, 104/104 passando
+
+### Gráfico 1 vela: causa raiz (refs no remount StrictMode)
+- [x] Efeito de dados herdava `lastTimeRef`/`fittedRef` e fazia `update()` numa série vazia recém-criada = 1 vela para sempre; refs zeradas na (re)montagem (10/09/2026)
+- [x] `tsc` limpo, 104/104 passando
+
+### Viewport travado em 1 vela (300 carregadas, sem erro no console)
+- [x] Evidência: 300 candles via binance + console limpo de erros de chart → viewport, não dado (10/09/2026)
+- [x] Auto-cura com respeito a zoom manual + log `[chart]` p/ rastreio
+- [x] `tsc` limpo, 104/104 passando
+
+### Gráfico em branco após tempo real (regressão corrigida)
+- [x] Causa: efeito de montagem rodava no render vazio (sem div) e nunca mais; monta quando há dados + largura explícita (10/09/2026)
+- [x] `tsc` limpo, 104/104 passando
+
+### Tempo real tick-a-tick (WebSocket Binance)
+- [x] `subscribeKline` + `mergeCandle`: stream `<PAR> spotlight@kline_<tf>`, aplica 1 tick/1,5s sem jank (10/09/2026)
+- [x] Gráfico usa `update()` no tick (zoom preservado); selo mostra TEMPO REAL (WS) ou AO VIVO (polling)
+- [x] Pares fora da Binance (deslistados etc.) caem no polling multi-fonte automaticamente
+- [x] 3 testes novos — 104/104 passando, `tsc` limpo
+
+### Gráfico em tempo real, horário de Brasília
+- [x] Eixo do tempo fixo em America/Sao_Paulo (independe do SO) + locale pt-BR (10/09/2026)
+- [x] Atualização ao vivo sem rebuild (preserva zoom): 1h 60s, 4h 2min, 1d 5min, 1s 15min; pausa com aba oculta
+- [x] Selo AO VIVO com relógio de Brasília + hora dos dados
+- [x] 2 testes novos — 101/101 passando, `tsc` limpo
+
+### Par deslistado mostrava gráfico congelado (XMR fev/2024, $118)
+- [x] Causa: Binance deslistou XMR em fev/2024; par morto responde velas congeladas que passavam nas checagens (10/09/2026)
+- [x] `isFresh` central no multiKlines (1h 24h / 4h 4d / 1d 10d / 1s 60d): dado velho pula p/ próxima fonte
+- [x] Monitor (`assetCandles`) usa multi-fonte + Yahoo `XXX-USD`; caches envenenados invalidados (chaves v2)
+- [x] 1 teste novo — 99/99 passando, `tsc` limpo
+
 ### Monitor absurdamente mais rápido (fetch condicional + SWR)
 - [x] `planMonitorData`: busca SÓ o que os filtros ativos exigem (1h/4h sempre do spark; semanal só se usado; MA-250 só com filtro de médias) — padrão cai de ~4 para ~1 call/moeda (10/09/2026)
 - [x] Stale-while-revalidate em `coinHistory`/`coinHistoryHours`/`getIntervalKlines`: dado morno serve na hora + atualiza em background

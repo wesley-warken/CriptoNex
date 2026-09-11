@@ -4,6 +4,7 @@ import type { Candle } from '@/types';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { type BinanceInterval } from '@/services/providers/binance';
 import { fetchAssetCandles, fetchMtfCandles, mtfLabels, timeframesFor, type ResolvedAsset } from '@/services/assetCandles';
+import { mergeCandle, subscribeKline } from '@/services/liveKlines';
 import { useLookup } from '@/components/analysis/AssetSearch';
 import { snapshot, calcSupertrend } from '@/engine/indicators';
 import { floorPivots, pivotZone, aggregateClosed } from '@/engine/pivots';
@@ -16,7 +17,7 @@ import { Panel, PanelTitle, Badge, Skeleton, ErrorBox } from '@/components/ui/ki
 import { CandleChart, type PriceLine } from '@/components/charts/CandleChart';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
-import { fmtUSD, fmtNum } from '@/lib/format';
+import { fmtPrice, fmtPriceNum } from '@/lib/format';
 import type { Pivots } from '@/engine/pivots';
 
 /** Plano de trade educacional a partir de pivôs + ATR (não é recomendação). */
@@ -60,6 +61,29 @@ function TradePlan({ symbol, price, pivots, atr, signal, fmtPx }: {
 }
 
 const QUICK = ['BTC', 'ETH', 'SOL', 'PETR4', 'VALE3', 'AAPL', 'TSM', 'NVDA'];
+
+/** Selo de tempo real com relógio de Brasília (tick isolado, sem re-render da página). */
+function LiveBadge({ updatedAt, live }: { updatedAt: number | null; live: boolean }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const fmt = (ts: number) =>
+    new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(ts));
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--up)] px-2.5 py-1 text-[11px] font-bold text-[var(--up)]"
+      title="Horário de Brasília (UTC-3)"
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--up)] opacity-60" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--up)]" />
+      </span>
+      {live ? 'TEMPO REAL' : 'AO VIVO'} · {fmt(Date.now())} BRT{updatedAt ? ` · dados ${fmt(updatedAt)}` : ''}
+    </span>
+  );
+}
 export function Monitor() {
   const [params, setParams] = useSearchParams();
   const symbol = (params.get('symbol') ?? 'BTC').toUpperCase();
@@ -67,9 +91,17 @@ export function Monitor() {
   const [tab, setTab] = useState('Overview');
   const [candles, setCandles] = useState<Candle[]>([]);
   const [daily, setDaily] = useState<Candle[]>([]);
+  // Janela de análise (300): gráfico exibe até 1000, mas score/sinais/backtest
+  // rodam nos 300 recentes — O(N²) do backtest trava a página com 1000 a cada tick
+  const [analysis, setAnalysis] = useState<Candle[]>([]);
+  const pushAnalysis = (kl: Candle[]) => setAnalysis(kl.length > 300 ? kl.slice(-300) : kl);
   const [resolved, setResolved] = useState<ResolvedAsset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [dataSrc, setDataSrc] = useState<string | null>(null);
+  const [wsLive, setWsLive] = useState(false);
+  const lastTickRef = useRef(0);
   const m = useCryptoMarket(60);
   const a = useAnalysis(m.data, m.candles);
   const cryptoMeta = CRYPTO_ASSETS.find((x) => x.symbol === symbol);
@@ -95,6 +127,9 @@ export function Monitor() {
         setResolved(r.asset);
         setCandles(r.candles);
         setDaily(r.daily);
+        pushAnalysis(r.candles);
+        setDataSrc(r.source);
+        setUpdatedAt(Date.now());
         if (r.asset.kind === 'stock' && tf === '4h') setTf('1d');
       } catch (e) { if (alive) setError(e instanceof Error ? e.message : 'Falha'); }
       finally { if (alive) setLoading(false); }
@@ -103,18 +138,62 @@ export function Monitor() {
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf]);
+
+  // Tempo real tick-a-tick via WebSocket (pares Binance); resto usa o polling acima
+  useEffect(() => {
+    if (!resolved || resolved.kind !== 'crypto' || !resolved.binanceSymbol) {
+      setWsLive(false);
+      return;
+    }
+    let alive = true;
+    const off = subscribeKline(
+      resolved.binanceSymbol,
+      tf,
+      (k) => {
+        if (!alive || document.hidden) return;
+        // Aplica no máximo 1 tick a cada 1,5s (página pesada: evita jank)
+        if (Date.now() - lastTickRef.current < 1500) return;
+        lastTickRef.current = Date.now();
+        setCandles((prev) => mergeCandle(prev, k));
+        setUpdatedAt(Date.now());
+      },
+      (ok) => { if (alive) setWsLive(ok); },
+    );
+    return () => { alive = false; off(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, tf, resolved?.binanceSymbol, resolved?.kind]);
+
+  // Polling de segurança: garante dado fresco mesmo sem WebSocket
+  useEffect(() => {
+    if (!resolved) return;
+    const ms = tf === '1h' ? 60_000 : tf === '4h' ? 120_000 : tf === '1d' ? 300_000 : 900_000;
+    const id = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetchAssetCandles(symbol, tf);
+        setCandles(r.candles);
+        setDaily(r.daily);
+        pushAnalysis(r.candles);
+        setUpdatedAt(Date.now());
+      } catch {
+        /* mantém o que há; próxima tentativa no ciclo seguinte */
+      }
+    }, ms);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbol, tf, resolved?.binanceSymbol, resolved?.yahooSymbol, resolved?.kind]);
   const kind = resolved?.kind ?? 'crypto';
   const tfs = timeframesFor(kind);
-  const snap = useMemo(() => (candles.length ? snapshot(candles) : null), [candles]);
-  const sig = useMemo(() => (candles.length ? buildSignals(candles, snap ?? undefined) : null), [candles, snap]);
+  const snap = useMemo(() => (analysis.length ? snapshot(analysis) : null), [analysis]);
+  const sig = useMemo(() => (analysis.length ? buildSignals(analysis, snap ?? undefined) : null), [analysis, snap]);
   const score = useMemo(
-    () => (candles.length ? scoreAsset({ symbol, candles, regime: kind === 'crypto' ? a.regime : null }) : null),
-    [candles, symbol, kind, a.regime],
+    () => (analysis.length ? scoreAsset({ symbol, candles: analysis, regime: kind === 'crypto' ? a.regime : null }) : null),
+    [analysis, symbol, kind, a.regime],
   );
-  const bt = useMemo(() => (candles.length >= 60 ? backtest(candles, 70) : null), [candles]);
-  const fwd = useMemo(() => (candles.length >= 60 ? signalForwardStats(candles, 70) : null), [candles]);
+  const bt = useMemo(() => (analysis.length >= 60 ? backtest(analysis, 70) : null), [analysis]);
+  const fwd = useMemo(() => (analysis.length >= 60 ? signalForwardStats(analysis, 70) : null), [analysis]);
   const lastClose = candles.length ? candles[candles.length - 1].close : null;
-  const fmtPx = (v: number | null | undefined) => (v == null ? '—' : kind === 'crypto' ? fmtUSD(v) : fmtNum(v));
+  const fmtPx = (v: number | null | undefined) => (v == null ? '—' : kind === 'crypto' ? fmtPrice(v) : fmtPriceNum(v));
   const [showSR, setShowSR] = useState(true);
   const [mtf, setMtf] = useState<{ tf: string; trend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' }[]>([]);
 
@@ -218,13 +297,24 @@ export function Monitor() {
           <Fullscreen title={`Candles ${symbol} · ${tf}`}>
             <div className="mb-2 flex items-center gap-2 text-xs text-muted">
               <label className="flex items-center gap-1"><input type="checkbox" checked={showSR} onChange={(e) => setShowSR(e.target.checked)} /> Suportes/resistências (pivô {pivotBase.label})</label>
-              {mtf.length > 0 && (
-                <span className="ml-auto">
-                  Curto <strong>{shortLabel}</strong> · Médio <strong>{midLabel}</strong> · Longo <strong>{longLabel}</strong>
-                </span>
-              )}
+              <span className="tabular">
+                {candles.length > 0 && (
+                  <>
+                    {candles.length} candles · via {dataSrc ?? '?'} · último{' '}
+                    {new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(candles[candles.length - 1].time))}
+                  </>
+                )}
+              </span>
+              <span className="ml-auto flex items-center gap-2">
+                <LiveBadge updatedAt={updatedAt} live={wsLive} />
+                {mtf.length > 0 && (
+                  <span>
+                    Curto <strong>{shortLabel}</strong> · Médio <strong>{midLabel}</strong> · Longo <strong>{longLabel}</strong>
+                  </span>
+                )}
+              </span>
             </div>
-            <CandleChart candles={candles} lines={srLines} />
+            <CandleChart key={`${symbol}-${tf}`} candles={candles} lines={srLines} dailyOrAbove={tf === '1d' || tf === '1w'} />
           </Fullscreen>
           {mtf.length > 0 && (
             <Panel>

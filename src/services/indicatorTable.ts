@@ -9,7 +9,7 @@ export type IndSnap = IndicatorSnapshot;
 const TTL = 2 * 60 * 60 * 1000;
 const TOP_N = 100;
 
-const indKey = (symbol: string) => `cc.quotes.cache:ind:${symbol}USDT`;
+const indKey = (symbol: string) => `cc.quotes.cache:ind2:${symbol}USDT`;
 
 /**
  * Converte fechamentos diários (CoinGecko) em pseudo-candles.
@@ -78,7 +78,7 @@ export async function ensureTopKlines(
   const needFallback: { symbol: string; id: string }[] = [];
   for (let i = 0; i < rest.length; i += 12) {
     const batch = await Promise.all(
-      rest.slice(i, i + 12).map(async (it): Promise<[string, Candle[] | null]> => [it.symbol, await multiKlines(it.symbol, '1d', 120, 40)]),
+        rest.slice(i, i + 12).map(async (it): Promise<[string, Candle[] | null]> => [it.symbol, (await multiKlines(it.symbol, '1d', 120, 40))?.klines ?? null]),
     );
     for (const [s, kl] of batch) {
       if (kl) {

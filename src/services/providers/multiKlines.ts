@@ -186,19 +186,44 @@ async function coinbaseKlines(base: string, interval: KlineInterval, limit: numb
  * Provedoras mortas são puladas por 5min após 1 probe (sem timeout por moeda).
  * Retorna null para o chamador aplicar o fallback CoinGecko com cache.
  */
-export async function multiKlines(baseSymbol: string, interval: KlineInterval, limit: number, minCandles: number): Promise<Candle[] | null> {
+const MAX_AGE_MS: Record<KlineInterval, number> = {
+  '1h': 24 * 3600_000,
+  '4h': 4 * 24 * 3600_000,
+  '1d': 10 * 24 * 3600_000,
+  '1w': 60 * 24 * 3600_000,
+};
+
+/**
+ * Rejeita pares mortos/deslistados (ex.: XMR na Binance, congelado desde
+ * fev/2024): velas existem mas o último candle é velho. Sem isso, dado
+ * congelado passa nas checagens de tamanho e o gráfico mostra o passado.
+ */
+export function isFresh(kl: Candle[] | null, interval: KlineInterval): boolean {
+  if (!kl || !kl.length) return false;
+  const last = kl[kl.length - 1].time;
+  if (!last || Number.isNaN(last)) return false;
+  return Date.now() - last < (MAX_AGE_MS[interval] ?? 0);
+}
+
+export type KlinesSource = 'binance' | 'kraken' | 'coinbase';
+export interface KlinesResult {
+  klines: Candle[];
+  source: KlinesSource;
+}
+
+export async function multiKlines(baseSymbol: string, interval: KlineInterval, limit: number, minCandles: number): Promise<KlinesResult | null> {
   const base = baseSymbol.toUpperCase();
   if (!binanceCoolingDown()) {
     const bn = await binanceKlinesFast(base, interval, limit, minCandles);
-    if (bn) return bn;
+    if (bn && isFresh(bn, interval)) return { klines: bn, source: 'binance' };
   }
   if (await providerHealthy('kraken')) {
     const kr = await krakenKlines(base, interval, limit);
-    if (kr && kr.length >= minCandles) return kr;
+    if (kr && kr.length >= minCandles && isFresh(kr, interval)) return { klines: kr, source: 'kraken' };
   }
   if (await providerHealthy('coinbase')) {
     const cb = await coinbaseKlines(base, interval, limit);
-    if (cb && cb.length >= minCandles) return cb;
+    if (cb && cb.length >= minCandles && isFresh(cb, interval)) return { klines: cb, source: 'coinbase' };
   }
   return null;
 }

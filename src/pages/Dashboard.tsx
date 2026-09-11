@@ -10,7 +10,7 @@ import { Panel, PanelTitle, Stat, Badge, Skeleton, ErrorBox } from '@/components
 import { Sparkline } from '@/components/charts/Sparkline';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
 import { Fullscreen } from '@/components/charts/Fullscreen';
-import { fmtUSD, fmtPct, fmtNum, timeAgo } from '@/lib/format';
+import { fmtUSD, fmtPct, fmtNum, fmtPrice, timeAgo } from '@/lib/format';
 import { summarize, totals } from '@/lib/portfolio';
 import { rankOpportunities } from '@/engine/ranking';
 
@@ -145,7 +145,7 @@ export function Dashboard() {
             return (
               <div key={s} className="flex items-center gap-3 border-b border-[var(--border)] py-2 text-sm">
                 <Link to={`/monitor?symbol=${s}`} className="w-16 font-bold hover:underline">{s}</Link>
-                <span className="tabular">{fmtUSD(d.price)}</span>
+                <span className="tabular">{fmtPrice(d.price)}</span>
                 <span className="tabular" style={{ color: (d.change24h ?? 0) >= 0 ? 'var(--up)' : 'var(--down)' }}>{fmtPct(d.change24h)}</span>
                 <Sparkline data={d.sparkline30d ?? []} />
               </div>

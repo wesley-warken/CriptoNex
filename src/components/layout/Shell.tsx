@@ -4,6 +4,7 @@ import { LayoutDashboard, Wallet, Radar, Trophy, Activity, LineChart, Star, Circ
 import { useStore } from '@/stores/useStore';
 import { GlobalSearch } from '@/components/analysis/GlobalSearch';
 import { AlertChecker } from '@/components/analysis/AlertChecker';
+import { useMonitorWatch } from '@/services/monitorWatch';
 import { cn } from '@/lib/utils';
 
 const ITEMS = [
@@ -36,6 +37,7 @@ export function Shell() {
   const name = useStore((s) => s.name);
   const loc = useLocation();
   useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
+  useMonitorWatch(); // vigia dos filtros do Monitor em background (qualquer página)
   return (
     <div className="app-shell flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-3 lg:flex">
