@@ -97,12 +97,15 @@ export function Dashboard() {
         {m.stale && m.updatedAt && <span>· Atualização: {new Date(m.updatedAt).toLocaleTimeString('pt-BR')}</span>}
         <button onClick={m.reload} className="ml-auto rounded-lg border border-[var(--border)] px-2 py-1">Recarregar</button>
       </div>
-      <div className="grid gap-3 md:grid-cols-4">
-        <Panel><PanelTitle>Market Regime</PanelTitle><Badge tone={regimeTone}>{a.regime.label}</Badge><div className="tabular mt-1 text-sm">Confiança {a.regime.confidence}% · Breadth {a.regime.breadth}%</div></Panel>
-        <Stat label="BTC" value={fmtUSD(btc?.price)} sub={fmtPct(btc?.change24h)} tone={(btc?.change24h ?? 0) >= 0 ? 'up' : 'down'} />
-        <Stat label="Market Breadth" value={`${a.regime.breadth}%`} sub={`Momentum ${a.regime.momentum}`} />
-        <Stat label="Portfolio" value={fmtUSD(current)} sub={`Investido ${fmtUSD(invested)}`} tone={current >= invested ? 'up' : 'down'} />
-      </div>
+      <Panel>
+        <PanelTitle>Leituras</PanelTitle>
+        <div className="grid gap-x-6 gap-y-3 md:grid-cols-4">
+          <Stat label="Market Regime" value={a.regime.label} sub={`Confiança ${a.regime.confidence}%`} tone={regimeTone} />
+          <Stat label="BTC" value={fmtUSD(btc?.price)} sub={fmtPct(btc?.change24h)} tone={(btc?.change24h ?? 0) >= 0 ? 'up' : 'down'} />
+          <Stat label="Market Breadth" value={`${a.regime.breadth}%`} sub={`Momentum ${a.regime.momentum}`} />
+          <Stat label="Portfolio" value={fmtUSD(current)} sub={`Investido ${fmtUSD(invested)}`} tone={current >= invested ? 'up' : 'down'} />
+        </div>
+      </Panel>
       <Panel>
         <PanelTitle right={<span className="text-xs normal-case text-muted">CoinGecko global · Yahoo ouro</span>}>Mercado global</PanelTitle>
         <div className="grid gap-4 md:grid-cols-5">

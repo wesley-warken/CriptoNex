@@ -6,7 +6,7 @@ import type { Operation, Wallet } from '@/lib/portfolio';
 import type { CustomScan } from '@/engine/scanConditions';
 import type { MonFilter } from '@/engine/monitor';
 
-export type ThemeName = 'light' | 'neon' | 'glass' | 'brutal';
+export type ThemeName = 'light' | 'neon' | 'glass' | 'brutal' | 'nex';
 export type PortfolioMethod = 'standard' | 'investor';
 
 export interface PriceAlert {
@@ -74,7 +74,7 @@ export const useStore = create<SettingsState>()(
       currency: 'USD',
       refreshSec: 60,
       brapiToken: '',
-      theme: 'glass',
+      theme: 'nex',
       muted: false,
       segment: 'crypto',
       favorites: ['BTC', 'ETH', 'SOL'],

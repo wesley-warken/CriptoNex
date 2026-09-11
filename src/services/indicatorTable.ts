@@ -12,10 +12,9 @@ const TOP_N = 100;
 const indKey = (symbol: string) => `cc.quotes.cache:ind2:${symbol}USDT`;
 
 /**
- * Converte fechamentos diários (CoinGecko) em pseudo-candles.
+ * Converte fechamentos (CoinGecko/sparkline) em pseudo-candles.
  * high/low sintéticos (±0,05%) só para não zerar indicadores que precisam
- * de range (Stoch/Supertrend/ATR); RSI/MACD/SMA/EMA/BB usam só o close,
- * então são exatos.
+ * de range; RSI/MACD/SMA/EMA usam só o close, então são exatos.
  */
 export function closesToCandles(closes: number[]): Candle[] | null {
   const last = closes.filter((v) => v > 0).slice(-120);

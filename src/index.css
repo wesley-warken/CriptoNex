@@ -4,5 +4,16 @@
 @tailwind utilities;
 
 html, body, #root { min-height: 100%; }
-body { font-family: Inter, 'Plus Jakarta Sans', system-ui, sans-serif; }
-* { scrollbar-width: thin; }
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'tnum' 1;
+}
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { caret-color: var(--accent); }
+button { transition: background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out; }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.8; }

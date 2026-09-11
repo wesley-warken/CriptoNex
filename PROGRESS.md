@@ -194,6 +194,40 @@ Aplicação local de análise de criptos e ações com 19 páginas funcionais, 4
 - [x] Fases por streaming: as 100 primeiras aparecem primeiro, 101–200 e 201–300 entram em seguida com progresso
 - [x] 4 testes novos (parsers com dados reais) — 95/95 passando, `tsc` limpo
 
+### Splash Screen / Animação de Entrada
+- [x] `src/components/SplashScreen.tsx`: grid financeiro, radar pulse, brilho radial, pulso SVG desenhado, CRIPTONEX mono com micro-glitch, barra de progresso + equalizador + % + boot lines a cada 400ms (10/09/2026)
+- [x] Saída cinematográfica (AnimatePresence: scale 1.05 + fade + blur), clique pula, reduced-motion respeitado, responsivo
+- [x] Ligado no `App.tsx` (demo 2.5s; comentários mostram como ligar em `useUniverseCrypto().done`)
+- [x] Validado com prints (meio + saída); `tsc` limpo, 112/112 passando
+
+### Receita exata da referência (5 votos + soma + bandas)
+- [x] RSI60/40, MACD sinal puro, SMA50 ±1%, EMA20 ±0,5%, Stoch K×D; soma ≥3/+1/0/−1/−3; sem-voto→Neutro (10/09/2026)
+- [x] Lado a lado ao vivo: curto Alta nas 4 majors = referência; mud com transições reais
+- [x] 112/112 passando, `tsc` limpo
+
+### Calibração passo 1: Stoch %K no eleitorado rápido
+- [x] Motivo: curto ficava 1 notch acima da referência em mercado esticado (10/09/2026)
+- [x] %K>55 +1 / <45 −1 só no fast (com range; ausente abstém); pullbacks imprimem Alta + transições
+- [x] Scan top-30 ao vivo: 20/20 divergem do % antigo (ex.: TRX Neutro×3 → Baixa/AF/AF; MATIC → Forte×3)
+- [x] 113/113 passando, `tsc` limpo
+
+### Calibração lado a lado vs referência (11/09 ~09:45 BRT, dados Binance/Kraken ao vivo)
+| Moeda | Ref C/M/L | Nosso C/M/L | Ref mudC/mudM/mudL | Nosso |
+|---|---|---|---|
+| BTC | Alta/AF/AF | AF/Alta/AF | AF→A / A→AF / AF→AF | =/= / A→A / =/= |
+| ETH | Alta/AF/AF | AF/AF/AF | AF→A / A→AF / AF→AF | =/= em tudo |
+| BNB | Alta/AF/AF | AF/AF/AF | AF→A / A→AF / AF→AF | =/= / A→AF / =/= |
+| XRP | Alta/AF/Alta | AF/Alta/AF | AF→A / A→AF / N→AF | =/= / A→A / =/= |
+| USDT | N/AF/Alta (7d ~0%) | — (abstém) | A→N / A→AF / N→A | — |
+- Direção: 5/5 altista nos dois (cross-check Binance/Kraken: mercado unanimemente em alta).
+- Diferença: 1 notch no curto (deles Alta, nosso Forte) + transições mais frequentes lá; USDT é divergência estrutural (receita proprietária), não bug.
+- Ação: sem mudança de motor com n=5 num rali; calibrar 1 botão por vez em amostra de dias.
+
+### Tendência por consenso (metodologia refeita)
+- [x] Estados por voto de RSI/MACD/EMA/SMA/Supertrend (eleitorados fast/full/slow por perna), mudança temporal (candle anterior → atual), fonte única por linha (10/09/2026)
+- [x] Cold-start instantâneo (% legado) + upgrade progressivo p/ consenso; janelas e bandas calibráveis em `TREND_MODE_WINDOWS`
+- [x] 6 testes novos (pullback curto-Baixa/longo-Alta, transição visível, stablecoin abstém) — 113/113, `tsc` limpo
+
 ### Travamento em 104/200 (lote congelado)
 - [x] Causa: espera ilimitada no rate-limit da CoinGecko (espiral de 429 segurava o lote inteiro) (10/09/2026)
 - [x] `tryAcquire` com prazo (8s): sem vez, a moeda vira "—" e o lote anda; preenche no refresh/cache

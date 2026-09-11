@@ -1,11 +1,27 @@
-/* Quatro temas via CSS variables — nenhuma cor hardcoded nos componentes */
+/* LED ticker wall: 5 temas via CSS variables — nenhuma cor hardcoded nos componentes.
+   glass/light/neon/brutal reformulados na mesma gramática + nex (identidade nova, padrão). */
+:root, [data-theme='nex'] {
+  --bg: #06090c;
+  --surface: #0b1116;
+  --surface-2: #101922;
+  --border: rgba(148, 163, 184, 0.16);
+  --text: #e8eef4;
+  --muted: #7d8ea1;
+  --accent: #b388ff;
+  --accent-2: #b388ff;
+  --up: #00e676;
+  --down: #ff3b30;
+  --warn: #ffb000;
+  --glass-blur: none;
+  color-scheme: dark;
+}
 :root, [data-theme='glass'] {
-  --bg: #0b1220;
-  --surface: rgba(17, 25, 40, 0.72);
-  --surface-2: rgba(30, 41, 59, 0.6);
-  --border: rgba(148, 163, 184, 0.18);
-  --text: #e2e8f0;
-  --muted: #94a3b8;
+  --bg: #0a101c;
+  --surface: rgba(15, 23, 36, 0.85);
+  --surface-2: rgba(28, 39, 56, 0.7);
+  --border: rgba(148, 163, 184, 0.2);
+  --text: #e6edf5;
+  --muted: #8fa1b5;
   --accent: #22d3ee;
   --accent-2: #a78bfa;
   --up: #34d399;
@@ -15,26 +31,26 @@
   color-scheme: dark;
 }
 [data-theme='light'] {
-  --bg: #f6f8fb;
+  --bg: #f4f6f9;
   --surface: #ffffff;
-  --surface-2: #eef2f7;
-  --border: #e2e8f0;
-  --text: #0f172a;
-  --muted: #64748b;
-  --accent: #0284c7;
-  --accent-2: #7c3aed;
-  --up: #059669;
-  --down: #e11d48;
-  --warn: #b45309;
+  --surface-2: #eceff3;
+  --border: #dbe1e9;
+  --text: #10161f;
+  --muted: #5f6f82;
+  --accent: #0369a1;
+  --accent-2: #6d28d9;
+  --up: #047857;
+  --down: #be123c;
+  --warn: #92400e;
   color-scheme: light;
 }
 [data-theme='neon'] {
-  --bg: #05070d;
-  --surface: #0a0f1c;
-  --surface-2: #0e1628;
-  --border: rgba(0, 255, 200, 0.16);
-  --text: #d9ffe9;
-  --muted: #5eead4;
+  --bg: #04060b;
+  --surface: #080d17;
+  --surface-2: #0c1424;
+  --border: rgba(0, 255, 200, 0.18);
+  --text: #dcffec;
+  --muted: #4fd8bd;
   --accent: #00ffc8;
   --accent-2: #ff3df0;
   --up: #00ff9d;
@@ -43,17 +59,17 @@
   color-scheme: dark;
 }
 [data-theme='brutal'] {
-  --bg: #fdf6e3;
-  --surface: #ffffff;
-  --surface-2: #f5edd8;
-  --border: #0f172a;
-  --text: #0f172a;
-  --muted: #57534e;
-  --accent: #4f46e5;
-  --accent-2: #db2777;
-  --up: #15803d;
-  --down: #dc2626;
-  --warn: #a16207;
+  --bg: #f7f3e8;
+  --surface: #fffdf5;
+  --surface-2: #efe7d2;
+  --border: #141414;
+  --text: #141414;
+  --muted: #5c564a;
+  --accent: #4338ca;
+  --accent-2: #be185d;
+  --up: #166534;
+  --down: #b91c1c;
+  --warn: #92400e;
   color-scheme: light;
 }
 body {
@@ -62,14 +78,14 @@ body {
 }
 [data-theme='glass'] body, [data-theme='glass'] .app-shell {
   background:
-    radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.16), transparent),
-    radial-gradient(1000px 500px at 90% 0%, rgba(167, 139, 250, 0.16), transparent),
+    radial-gradient(1200px 600px at 10% -10%, rgba(34, 211, 238, 0.12), transparent),
+    radial-gradient(1000px 500px at 90% 0%, rgba(167, 139, 250, 0.12), transparent),
     var(--bg);
 }
 .panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 10px;
 }
 [data-theme='glass'] .panel {
   backdrop-filter: var(--glass-blur);
@@ -80,4 +96,8 @@ body {
   border-radius: 0;
   box-shadow: 6px 6px 0 var(--border);
 }
-.tabular { font-variant-numeric: tabular-nums; font-family: 'JetBrains Mono', monospace; }
+[data-theme='nex'] .panel {
+  border-radius: 6px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+.tabular { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

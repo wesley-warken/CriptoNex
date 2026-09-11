@@ -5,13 +5,13 @@ import { useStore } from '@/stores/useStore';
 import { useUniverseCrypto } from '@/services/universeHooks';
 import { ensureTopKlines, closesToCandles, snapOf, type IndSnap } from '@/services/indicatorTable';
 import { ensureRsiTable, getIntervalKlines, rsiBand, RSI_COLS, RSI_SORT_KEYS, sampleEvery, type RsiCol, type RsiFilter, type RsiOp, type RsiSnap } from '@/services/rsiTable';
-import { coinTrend, coinTrendIntraday, shiftLabel, TREND_LEVEL, type CoinTrend, type TrendState, type TrendTf } from '@/engine/trend';
+import { coinTrend, coinTrendMultiTF, shiftLabel, TREND_LEVEL, TREND_MODE_LEGS, type CoinTrend, type TrendOhlc, type TrendState, type TrendTf } from '@/engine/trend';
 import { unusualMove } from '@/engine/attention';
 import { computeMaSet, ensureMaKlines, maCrossDiff, maCrossTitle, slowsFor, MA_FASTS, type MaFast, type MaKind, type MaSet } from '@/services/maTable';
 import { isActiveCoin, isStablecoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle } from '@/types';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
-import { BarChart3, Bell, Filter, Globe, Info, ListPlus, Maximize2, RotateCw, Star, TrendingUp } from 'lucide-react';
+import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty, Seg, Btn, Micro } from '@/components/ui/kit';
+import { ArrowUpRight, BarChart3, Bell, CheckCircle2, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
 import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
@@ -55,6 +55,16 @@ type SuperSnap = Record<'h1' | 'h4' | 'd1' | 'w1', SuperTf>;
 const SUPER_TFS: { k: keyof SuperSnap; label: string }[] = [
   { k: 'h1', label: '1h' }, { k: 'h4', label: '4h' }, { k: 'd1', label: '1d' }, { k: 'w1', label: '1s' },
 ];
+/** Ícones desenhados dos filtros (nunca emoji como sistema de ícones). */
+const MON_ICON_MAP: Record<string, LucideIcon> = {
+  'trend-up': TrendingUp, alert: TriangleAlert, flame: Flame, check: CheckCircle2,
+  'trend-down': TrendingDown, gem: Gem, zap: Zap, siren: Siren,
+  'up-right': ArrowUpRight, eye: Eye, star: Star,
+};
+export function monIcon(key: string, size = 13) {
+  const I = MON_ICON_MAP[key] ?? Star;
+  return <I size={size} />;
+}
 
 function cacheAge(ts: number | null): string {
   if (!ts) return '';
@@ -135,6 +145,22 @@ export function Radar() {
   const [rsiSnaps, setRsiSnaps] = useState<Map<string, RsiSnap>>(new Map());
   const [rsiPartial, setRsiPartial] = useState(false);
   const [indTf, setIndTf] = useState<'1d' | TrendTf>('1d');
+  const [trendWarm, setTrendWarm] = useState<Map<string, CoinTrend>>(new Map());
+
+  /** Tendência: consenso warm multi-TF ou cold-start % instantâneo (qualquer modo). */
+  const trendFor = (d: UniverseCoin): CoinTrend | null => {
+    const w = trendWarm.get(d.symbol);
+    if (w) return w;
+    try {
+      return coinTrend(d);
+    } catch {
+      return null;
+    }
+  };
+  const toTrendOhlc = (kl: Candle[] | null): TrendOhlc | null =>
+    kl && kl.length >= 15
+      ? { closes: kl.map((k) => k.close), highs: kl.map((k) => k.high), lows: kl.map((k) => k.low) }
+      : null;
   const [smaCfg, setSmaCfg] = useState<MaFast>(9);
   const [emaCfg, setEmaCfg] = useState<MaFast>(9);
   const [maModal, setMaModal] = useState<MaKind | null>(null);
@@ -169,7 +195,7 @@ export function Radar() {
   const [monListOpen, setMonListOpen] = useState(false);
   const [monBuilderOpen, setMonBuilderOpen] = useState(false);
   const blankDraft = (): { name: string; icon: string; color: MonColor; description: string; conditions: MonCondition[] } => ({
-    name: '', icon: '⭐', color: 'yellow', description: '', conditions: [{ indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 }],
+    name: '', icon: 'star', color: 'yellow', description: '', conditions: [{ indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 }],
   });
   const [monDraft, setMonDraft] = useState(blankDraft);
 
@@ -188,11 +214,8 @@ export function Radar() {
     if (needle) list = list.filter((c) => c.symbol.toLowerCase().includes(needle) || c.name.toLowerCase().includes(needle));
     const val = (c: UniverseCoin): number => {
       if (sort.k.startsWith('trend') || sort.k.startsWith('mud')) {
-        // 1d usa os campos do universo; 1h/4h calculam do sparkline (instantâneo)
-        const pre = tab === 'TREND' && indTf !== '1d'
-          ? (coinTrendIntraday(c.spark7d, { d: c.change24h, w: c.change7d, m: c.change30d }, indTf) ?? null)
-          : undefined;
-        return trendSortVal(c, sort.k, pre) ?? (sort.d === -1 ? -Infinity : Infinity);
+        // Warm (consenso, fonte única) com fallback cold instantâneo
+        return trendSortVal(c, sort.k, tab === 'TREND' ? (trendFor(c) ?? null) : undefined) ?? (sort.d === -1 ? -Infinity : Infinity);
       }
       if (RSI_SORT_KEYS.has(sort.k)) {
         return rsiSnaps.get(c.symbol)?.[sort.k as RsiCol] ?? (sort.d === -1 ? -Infinity : Infinity);
@@ -248,7 +271,7 @@ export function Radar() {
       });
     }
     return [...list].sort((a, b) => (val(a) - val(b)) * sort.d);
-  }, [u.coins, q, onlyActive, hideStables, showAll, sort, tab, mcapTopIds, rsiSnaps, rsiFilter, indTf, superSnaps, smaCfg, emaCfg, maVals]);
+  }, [u.coins, q, onlyActive, hideStables, showAll, sort, tab, mcapTopIds, rsiSnaps, rsiFilter, indTf, trendWarm, superSnaps, smaCfg, emaCfg, maVals]);
 
   useEffect(() => {
     setCount(500);
@@ -317,6 +340,67 @@ export function Radar() {
       }, fetchN);
       if (!alive) return;
       setMaKlines(kl);
+      setIndProg(null);
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, indTf, fetchN]);
+
+  // Tendência: upgrade do cold-start p/ consenso multi-TF (progressivo).
+  // Cada perna avalia seu timeframe (1d → 4h/diário/semanal); fonte única por perna.
+  useEffect(() => {
+    if (tab !== 'TREND') return;
+    const mode = indTf;
+    const legs = TREND_MODE_LEGS[mode];
+    const needDaily = legs.some((l) => l.tf === '1d');
+    const others = [...new Set(legs.map((l) => l.tf).filter((t) => t !== '1d'))] as ('1h' | '4h' | '1w')[];
+    const lim: Record<'1h' | '4h' | '1w', { min: number; limit: number }> = {
+      '1h': { min: 30, limit: 200 },
+      '4h': { min: 40, limit: 200 },
+      '1w': { min: 30, limit: 120 },
+    };
+    let alive = true;
+    (async () => {
+      setIndProg({ done: 0, total: fetchN });
+      const top = rows.filter((c) => (c.marketCap ?? 0) > 0).slice(0, fetchN);
+      const items = top.map((c) => ({ symbol: c.symbol, id: c.id }));
+      let dailyMap = new Map<string, Candle[]>();
+      if (needDaily) {
+        dailyMap = await ensureTopKlines(items, (done, total) => alive && setIndProg({ done, total }), fetchN);
+        if (!alive) return;
+      }
+      const out = new Map<string, CoinTrend>();
+      for (let i = 0; i < top.length; i += 12) {
+        const batch = await Promise.all(
+          top.slice(i, i + 12).map(async (c): Promise<[string, CoinTrend | null]> => {
+            try {
+              const kl: Record<string, Candle[] | null> = { '1d': dailyMap.get(c.symbol) ?? null };
+              for (const tf of others) kl[tf] = await getIntervalKlines(c.symbol, c.id, tf, lim[tf].min, lim[tf].limit);
+              const rec = {
+                '1h': toTrendOhlc(kl['1h']),
+                '4h': toTrendOhlc(kl['4h']),
+                '1d': toTrendOhlc(kl['1d']),
+                '1w': toTrendOhlc(kl['1w']),
+              };
+              return [c.symbol, coinTrendMultiTF(rec, mode)];
+            } catch {
+              return [c.symbol, null];
+            }
+          }),
+        );
+        if (!alive) return;
+        for (const [s, t] of batch) {
+          if (t) {
+            out.set(s, t);
+            setTrendWarm((prev) => new Map(prev).set(s, t));
+          }
+        }
+        setIndProg({ done: Math.min(i + 12, top.length), total: top.length });
+      }
+      if (!alive) return;
+      setTrendWarm(out);
       setIndProg(null);
     })();
     return () => {
@@ -616,8 +700,8 @@ export function Radar() {
   const cellAsset = (d: UniverseCoin) => (
     <span className="truncate"><Link to={`/monitor?symbol=${d.symbol}`} className="font-bold hover:underline">{d.symbol}</Link> <span className="text-xs text-muted">{d.name}</span></span>
   );
-  const indActive = IND_TABS.includes(tab) || tab === 'RSI' || tab === 'SUPER' || tab === 'SMA' || tab === 'EMA' || (tab === 'TREND' && indTf !== '1d');
-  const indCount = tab === 'RSI' ? rsiSnaps.size : tab === 'SUPER' ? superSnaps.size : tab === 'SMA' || tab === 'EMA' ? maKlines.size : snaps.size;
+  const indActive = IND_TABS.includes(tab) || tab === 'RSI' || tab === 'SUPER' || tab === 'SMA' || tab === 'EMA' || tab === 'TREND';
+  const indCount = tab === 'RSI' ? rsiSnaps.size : tab === 'SUPER' ? superSnaps.size : tab === 'SMA' || tab === 'EMA' ? maKlines.size : tab === 'TREND' ? trendWarm.size : snaps.size;
   const indNote = indActive && (
     <span className="text-xs normal-case text-muted">
       {indProg ? ` calculando ${indProg.done}/${indProg.total}…` : ` top ${fetchN} por market cap · ${indCount} com indicadores`}
@@ -733,10 +817,8 @@ export function Radar() {
           {cellFav(d)}
         </>);
       case 'TREND': {
-        // 1d: campos do universo · 1h/4h: sparkline horário (instantâneo, sem fetch)
-        const t = indTf === '1d'
-          ? coinTrend(d)
-          : (coinTrendIntraday(d.spark7d, { d: d.change24h, w: d.change7d, m: d.change30d }, indTf) ?? null);
+        // Warm (consenso, fonte única) com fallback cold instantâneo
+        const t = trendFor(d);
         return (<>
           {cellAsset(d)}
           <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
@@ -987,33 +1069,19 @@ export function Radar() {
           </button>
         ))}
         <span className="ml-2 inline-flex items-center gap-1" title="Quantas moedas por market cap entram em cada radar">
-          {[100, 200, 300].map((n) => (
-            <button
-              key={n}
-              onClick={() => setTopN(n)}
-              className={topN === n ? 'rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-xs font-bold text-black' : 'rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-muted'}
-            >
-              Top {n}
-            </button>
-          ))}
-          <button
-            onClick={() => setTopN(null)}
-            className={topN == null ? 'rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-xs font-bold text-black' : 'rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-muted'}
-          >
-            Todas
-          </button>
+          <Seg
+            options={[{ k: '100', label: 'Top 100' }, { k: '200', label: 'Top 200' }, { k: '300', label: 'Top 300' }, { k: 'all', label: 'Todas' }] as const}
+            value={topN == null ? 'all' : String(topN) as '100' | '200' | '300' | 'all'}
+            onChange={(v) => setTopN(v === 'all' ? null : Number(v))}
+          />
         </span>
         {(tab === 'TREND' || tab === 'STOCH' || tab === 'BB' || tab === 'SMA' || tab === 'EMA') && (
-          <span className="ml-2 inline-flex items-center gap-1">
-            {([['1h', '1 hora'], ['4h', '4 horas'], ['1d', '1 dia']] as const).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setIndTf(v)}
-                className={indTf === v ? 'rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-xs font-bold text-black' : 'rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs text-muted'}
-              >
-                {label}
-              </button>
-            ))}
+          <span className="ml-2">
+            <Seg
+              options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
+              value={indTf}
+              onChange={(v) => setIndTf(v)}
+            />
           </span>
         )}
       </div>
@@ -1094,10 +1162,10 @@ export function Radar() {
                   </span>
                   <span className="flex min-w-0 items-center">
                     <span
-                      className="mr-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs"
-                      style={{ background: `color-mix(in srgb, ${monVar(e.filter.color)} 30%, transparent)` }}
+                      className="mr-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                      style={{ background: `color-mix(in srgb, ${monVar(e.filter.color)} 30%, transparent)`, color: monVar(e.filter.color) }}
                     >
-                      {e.filter.icon}
+                      {monIcon(e.filter.icon)}
                     </span>
                     <strong className="truncate" style={{ color: monVar(e.filter.color) }}>{e.filter.name}</strong>
                   </span>
@@ -1256,7 +1324,7 @@ export function Radar() {
                 return (
                   <label key={f.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
                     <input type="checkbox" checked={on} onChange={() => toggleMonFilter(f.id)} />
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)` }}>{f.icon}</span>
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)`, color: monVar(f.color) }}>{monIcon(f.icon)}</span>
                     <span className="flex-1"><strong>{f.name}</strong><span className="block text-xs text-muted">{f.description}</span></span>
                   </label>
                 );
@@ -1270,7 +1338,7 @@ export function Radar() {
                 return (
                   <div key={f.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
                     <input type="checkbox" checked={on} onChange={() => toggleMonFilter(f.id)} title="Ativar" />
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full text-xs" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)` }}>{f.icon}</span>
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)`, color: monVar(f.color) }}>{monIcon(f.icon)}</span>
                     <span className="flex-1"><strong>{f.name}</strong><span className="block text-xs text-muted">{f.conditions.length} condição(ões)</span></span>
                     <button onClick={() => removeMonFilter(f.id)} className="text-xs text-muted hover:text-[var(--down)]" title="Excluir">✕</button>
                   </div>
@@ -1304,7 +1372,7 @@ export function Radar() {
               <div>
                 <label className="block text-xs text-muted">Ícone</label>
                 <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm">
-                  {MON_ICONS.map((i) => <option key={i} value={i}>{i}</option>)}
+                  {MON_ICONS.map((i) => <option key={i.k} value={i.k}>{i.label}</option>)}
                 </select>
               </div>
               <div>

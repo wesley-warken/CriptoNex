@@ -8,7 +8,7 @@
 
 import type { Candle } from '@/types';
 import type { UniverseCoin } from '@/services/universeTypes';
-import { coinTrend, coinTrendFromCloses, TREND_LEVEL, type CoinTrend } from '@/engine/trend';
+import { coinTrend, coinTrendMultiTF, TREND_LEVEL, type CoinTrend, type TrendOhlc } from '@/engine/trend';
 import { calcMACD, calcStoch, calcSupertrendFull, rsiWithAvg } from '@/engine/indicators';
 import { computeMaSet, type MaSet } from '@/services/maTable';
 import { unusualMove } from '@/engine/attention';
@@ -93,7 +93,19 @@ export const TREND_LEVEL_OPTIONS = [
   { label: 'Baixa Forte', value: 0 },
 ];
 
-export const MON_ICONS = ['✅', '🔥', '⚠️', '📈', '📉', '⭐', '🚨', '💎', '👀', '💥'];
+export const MON_ICONS: { k: string; label: string }[] = [
+  { k: 'trend-up', label: 'Tendência de alta' },
+  { k: 'trend-down', label: 'Tendência de baixa' },
+  { k: 'alert', label: 'Alerta' },
+  { k: 'flame', label: 'Chama' },
+  { k: 'check', label: 'Confirmação' },
+  { k: 'gem', label: 'Gema' },
+  { k: 'zap', label: 'Raio' },
+  { k: 'siren', label: 'Sirene' },
+  { k: 'up-right', label: 'Seta alta' },
+  { k: 'eye', label: 'Olho' },
+  { k: 'star', label: 'Estrela' },
+];
 export const MON_COLORS: { k: MonColor; label: string }[] = [
   { k: 'green', label: 'Verde (alta)' },
   { k: 'red', label: 'Vermelho (baixa)' },
@@ -145,12 +157,30 @@ export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | nu
   });
   const c1d = closesOf('1d');
   const att = c1d.length >= 12 ? safe(() => unusualMove(c1d)) : null;
+  // Tendência por consenso na MESMA série de cada tempo (fonte única por perna).
+  // 1d sem klines: cold-start % dos campos do universo; com klines: consenso.
+  // Tendência multi-TF: cada perna no seu timeframe (1d → 4h/diário/semanal).
+  // 1d sem klines: cold-start % dos campos do universo.
+  const ohlcOf = (kl: Candle[] | null): TrendOhlc | null =>
+    kl && kl.length >= 15
+      ? { closes: kl.map((k) => k.close), highs: kl.map((k) => k.high), lows: kl.map((k) => k.low) }
+      : null;
+  const k1d = get('1d');
+  const k1h = get('1h');
+  const k4h = get('4h');
+  const k1w = get('1w');
+  const rec = {
+    '1h': ohlcOf(k1h.length ? k1h : null),
+    '4h': ohlcOf(k4h.length ? k4h : null),
+    '1d': ohlcOf(k1d.length ? k1d : null),
+    '1w': ohlcOf(k1w.length ? k1w : null),
+  };
   return {
     symbol: coin.symbol,
     trend: {
-      '1d': safe(() => coinTrend(coin)),
-      '1h': coinTrendFromCloses(closesOf('1h'), '1h'),
-      '4h': coinTrendFromCloses(closesOf('4h'), '4h'),
+      '1d': safe(() => coinTrendMultiTF(rec, '1d')) ?? safe(() => coinTrend(coin)),
+      '4h': safe(() => coinTrendMultiTF(rec, '4h')),
+      '1h': safe(() => coinTrendMultiTF(rec, '1h')),
     },
     rsi, stochK, stochD, macd, super: sup,
     attRatio: att?.ratio ?? null,
@@ -259,34 +289,34 @@ const F = (
 ): MonFilter => ({ id, name, icon, color, description, conditions, preset: true });
 
 export const PRESET_FILTERS: MonFilter[] = [
-  F('pullback-alta', 'Pullback em Alta', '📈', 'green', 'Tendência de alta com RSI 4h sobrevendido: possível entrada no pullback.',
+  F('pullback-alta', 'Pullback em Alta', 'trend-up', 'green', 'Tendência de alta com RSI 4h sobrevendido: possível entrada no pullback.',
     [
       { indicator: 'trend', tf: '1d', field: 'curto', op: 'gte', value: 3 },
       { indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 },
     ]),
-  F('sobrevenda-diaria', 'Sobrevenda Diária', '⚠️', 'yellow', 'RSI diário abaixo de 30.',
+  F('sobrevenda-diaria', 'Sobrevenda Diária', 'alert', 'yellow', 'RSI diário abaixo de 30.',
     [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 }]),
-  F('sobrecompra', 'Sobrecompra', '🔥', 'red', 'RSI diário acima de 70.',
+  F('sobrecompra', 'Sobrecompra', 'flame', 'red', 'RSI diário acima de 70.',
     [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'gte', value: 70 }]),
-  F('golden-cross', 'Golden Cross', '✅', 'green', 'EMA 9 acima da EMA 26 no diário.',
+  F('golden-cross', 'Golden Cross', 'check', 'green', 'EMA 9 acima da EMA 26 no diário.',
     [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'gt', value: 0 }]),
-  F('death-cross', 'Death Cross', '📉', 'red', 'EMA 9 abaixo da EMA 26 no diário.',
+  F('death-cross', 'Death Cross', 'trend-down', 'red', 'EMA 9 abaixo da EMA 26 no diário.',
     [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'lt', value: 0 }]),
-  F('alt-momentum', 'AltMomentum', '💎', 'green', 'Movimento atípico de alta: ≥2× a média de 10 dias.',
+  F('alt-momentum', 'AltMomentum', 'gem', 'green', 'Movimento atípico de alta: ≥2× a média de 10 dias.',
     [
       { indicator: 'attention', tf: '1d', field: 'ratio', op: 'gte', value: 2 },
       { indicator: 'attention', tf: '1d', field: 'today', op: 'gt', value: 0 },
     ]),
-  F('washout', 'Washout', '💥', 'yellow', 'RSI diário abaixo de 25: capitulação vendedora.',
+  F('washout', 'Washout', 'zap', 'yellow', 'RSI diário abaixo de 25: capitulação vendedora.',
     [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 25 }]),
-  F('reversao-bearish', 'Reversão Bearish', '🚨', 'red', 'MACD negativo com Supertrend baixista no diário.',
+  F('reversao-bearish', 'Reversão Bearish', 'siren', 'red', 'MACD negativo com Supertrend baixista no diário.',
     [
       { indicator: 'macd', tf: '1d', field: 'hist', op: 'lt', value: 0 },
       { indicator: 'super', tf: '1d', field: 'dir', op: 'eq', value: 0 },
     ]),
-  F('super-alta-4h', 'Supertrend Alta 4h', '📈', 'green', 'Supertrend altista no 4 horas.',
+  F('super-alta-4h', 'Supertrend Alta 4h', 'up-right', 'green', 'Supertrend altista no 4 horas.',
     [{ indicator: 'super', tf: '4h', field: 'dir', op: 'eq', value: 1 }]),
-  F('stoch-sobrevendido', 'Estocástico Sobrevendido', '👀', 'yellow', 'Estocástico rápido ≤20 no 4 horas.',
+  F('stoch-sobrevendido', 'Estocástico Sobrevendido', 'eye', 'yellow', 'Estocástico rápido ≤20 no 4 horas.',
     [{ indicator: 'stoch', tf: '4h', field: 'k', op: 'lte', value: 20 }]),
 ];
 

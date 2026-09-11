@@ -15,7 +15,7 @@ export function Settings() {
           <label>Moeda<select value={s.currency} onChange={(e) => s.set({ currency: e.target.value })} className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"><option value="USD">USD</option><option value="BRL">BRL</option><option value="EUR">EUR</option></select></label>
           <label>Refresh (segundos)<input type="number" value={s.refreshSec} onChange={(e) => s.set({ refreshSec: Math.max(30, Number(e.target.value)) })} className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5" /></label>
           <label>Brapi token (opcional, fallback B3)<input value={s.brapiToken} onChange={(e) => s.set({ brapiToken: e.target.value })} placeholder="token brapi.dev" className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5" /></label>
-          <label>Tema<select value={s.theme} onChange={(e) => s.set({ theme: e.target.value as typeof s.theme })} className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"><option value="glass">Glass</option><option value="light">Light</option><option value="neon">Neon</option><option value="brutal">Brutal</option></select></label>
+          <label>Tema<select value={s.theme} onChange={(e) => s.set({ theme: e.target.value as typeof s.theme })} className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5"><option value="nex">Nex</option><option value="glass">Glass</option><option value="light">Light</option><option value="neon">Neon</option><option value="brutal">Brutal</option></select></label>
         </div>
       </Panel>
       <Panel>

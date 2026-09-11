@@ -42,18 +42,18 @@ export function Shell() {
     <div className="app-shell flex min-h-screen">
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border)] bg-[var(--surface)] p-3 lg:flex">
         <div className="mb-2 flex items-center gap-2 px-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)] font-display text-lg font-bold text-black">P</div>
-          <div><div className="font-display font-bold">Pulso de Mercado</div><div className="text-xs text-muted">terminal local</div></div>
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--accent)] text-sm font-bold text-black">NX</div>
+          <div><div className="font-bold tracking-tight">CriptoNex</div><div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">terminal local</div></div>
         </div>
         {ITEMS.map((it) => (
-          <NavLink key={it.to + it.label} to={it.to} className={({ isActive }) => cn('flex items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-[var(--surface-2)]', isActive && loc.pathname === it.to ? 'bg-[var(--surface-2)] font-semibold' : '')}>
+          <NavLink key={it.to + it.label} to={it.to} className={({ isActive }) => cn('flex items-center gap-2 rounded-md px-3 py-2 text-sm text-muted hover:bg-[var(--surface-2)] hover:text-white', isActive && loc.pathname === it.to ? 'bg-[var(--surface-2)] font-bold text-[var(--accent)]' : '')}>
             <it.icon size={16} /> {it.label}
           </NavLink>
         ))}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-[var(--border)] bg-[var(--surface)]/90 p-3 backdrop-blur">
-          <div className="font-display font-bold lg:hidden">Pulso de Mercado</div>
+          <div className="font-bold tracking-tight lg:hidden">CriptoNex</div>
           <div className="relative ml-auto hidden min-w-52 items-center md:flex">
             <Search size={15} className="absolute left-2 text-muted" />
             <GlobalSearch />
@@ -64,7 +64,8 @@ export function Shell() {
             ))}
           </div>
           <button title={muted ? 'Ativar som' : 'Silenciar'} onClick={() => set({ muted: !muted })} className="rounded-lg border border-[var(--border)] p-2">{muted ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
-          <select value={theme} onChange={(e) => set({ theme: e.target.value as typeof theme })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-sm">
+          <select value={theme} onChange={(e) => set({ theme: e.target.value as typeof theme })} className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-sm">
+            <option value="nex">Nex</option>
             <option value="glass">Glass</option>
             <option value="light">Light</option>
             <option value="neon">Neon</option>

@@ -13,3 +13,6 @@ dev-server.log
 output/
 working/
 
+# estado de workflow do impeccable (evidências locais de revisão)
+.impeccable/
+

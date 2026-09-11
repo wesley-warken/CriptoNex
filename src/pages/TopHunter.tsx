@@ -185,15 +185,15 @@ export function TopHunter() {
           const vol10 = volRatio10(kl);
           const cross9x26 = emaCross(closes, 9, 26);
           const events: string[] = [];
-          if (nearHigh) events.push('📈 Próximo da máxima do período');
-          if (nearLow) events.push('📉 Próximo da mínima do período — possível fundo');
-          if (volSpike) events.push(`⚡ Volume spike ${(s.volumeRatio ?? 0).toFixed(1)}× média 20d`);
-          if (vol10 != null && vol10 >= 2) events.push(`⚡ Barra atual ${(vol10).toFixed(2)}× a média das últimas 10 barras`);
-          if (cross9x26 === 'bullish') events.push('✚ EMA9 cruzou ACIMA da EMA26');
-          if (cross9x26 === 'bearish') events.push('✖ EMA9 cruzou ABAIXO da EMA26');
-          if (s.supertrend === 'BULLISH') events.push('📈 Supertrend bullish');
-          if (s.rsi != null && s.rsi < 30) events.push(`🔵 Sobrevenda (RSI ${s.rsi.toFixed(1)})`);
-          if (s.rsi != null && s.rsi > 70) events.push(`🔴 Sobrecompra (RSI ${s.rsi.toFixed(1)})`);
+          if (nearHigh) events.push('Próximo da máxima do período');
+          if (nearLow) events.push('Próximo da mínima do período — possível fundo');
+          if (volSpike) events.push(`Volume spike ${(s.volumeRatio ?? 0).toFixed(1)}× média 20d`);
+          if (vol10 != null && vol10 >= 2) events.push(`Barra atual ${(vol10).toFixed(2)}× a média das últimas 10 barras`);
+          if (cross9x26 === 'bullish') events.push('EMA9 cruzou ACIMA da EMA26');
+          if (cross9x26 === 'bearish') events.push('EMA9 cruzou ABAIXO da EMA26');
+          if (s.supertrend === 'BULLISH') events.push('Supertrend bullish');
+          if (s.rsi != null && s.rsi < 30) events.push(`Sobrevenda (RSI ${s.rsi.toFixed(1)})`);
+          if (s.rsi != null && s.rsi > 70) events.push(`Sobrecompra (RSI ${s.rsi.toFixed(1)})`);
           if (!events.length) return null;
           const score = a.bySym.get(d.symbol);
           return (

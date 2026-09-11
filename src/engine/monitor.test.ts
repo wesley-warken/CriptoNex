@@ -63,7 +63,7 @@ describe('monitor', () => {
     });
     expect(d.rsi['1d']).not.toBeNull();
     expect(d.rsi['1d']!).toBeGreaterThan(50);
-    expect(d.trend['1d']?.curto).toBe('Alta Forte');
+    expect(d.trend['1d']?.curto).toBe('Alta');
     expect(d.super['1d']).toBe('BULLISH');
     expect(d.ma).not.toBeNull();
     const gold: MonFilter = { id: 'g', name: 'G', icon: '✅', color: 'green', conditions: [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'gt', value: 0 }] };
