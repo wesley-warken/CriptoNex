@@ -6,6 +6,7 @@ import { shouldTrigger } from '@/services/alertEngine';
 import { beep } from '@/lib/alerts';
 
 interface Fired {
+  key: string;
   id: string;
   text: string;
 }
@@ -61,6 +62,16 @@ export function AlertChecker() {
   }, [cryptoPrices, b3.map, yh.map]);
 
   const firedRef = useRef<Set<string>>(new Set());
+  // Permite re-disparo após reativação: se o alerta voltou a ficar ativo com
+  // triggeredAt zerado, libera o id; remove ids de alertas excluídos.
+  useEffect(() => {
+    const byId = new Map(alerts.map((a) => [a.id, a]));
+    for (const id of [...firedRef.current]) {
+      const a = byId.get(id);
+      if (!a) firedRef.current.delete(id);
+      else if (a.active && a.triggeredAt == null) firedRef.current.delete(id);
+    }
+  }, [alerts]);
   useEffect(() => {
     for (const a of active) {
       const px = prices.get(a.symbol);
@@ -69,8 +80,9 @@ export function AlertChecker() {
         beep(muted);
         markTriggered(a.id);
         const text = `${a.symbol} ${a.condition === 'above' ? '≥' : '≤'} ${a.price} (agora ${px})`;
-        setFired((f) => [...f.slice(-2), { id: a.id, text }]);
-        setTimeout(() => setFired((f) => f.filter((x) => x.id !== a.id)), 12000);
+        const key = `${a.id}-${Date.now()}`;
+        setFired((f) => [...f.slice(-2), { key, id: a.id, text }]);
+        setTimeout(() => setFired((f) => f.filter((x) => x.key !== key)), 12000);
       }
     }
   }, [prices, active, muted, markTriggered]);
@@ -79,7 +91,7 @@ export function AlertChecker() {
   return (
     <div className="fixed bottom-4 right-4 z-50 space-y-2">
       {fired.map((f) => (
-        <div key={f.id} className="panel border-[var(--warn)] p-3 text-sm shadow-xl">
+        <div key={f.key} className="panel border-[var(--warn)] p-3 text-sm shadow-xl">
           <strong>🔔 Alerta disparado</strong>
           <div className="tabular">{f.text}</div>
         </div>

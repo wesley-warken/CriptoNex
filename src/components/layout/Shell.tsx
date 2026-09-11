@@ -11,7 +11,7 @@ const ITEMS = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/portfolio', label: 'Portfolio', icon: Wallet },
   { to: '/radar', label: 'Crypto Radar', icon: Radar },
-  { to: '/opportunities', label: 'Opportunities', icon: Trophy },
+  { to: '/oportunidades', label: 'Oportunidades', icon: Trophy },
   { to: '/regime', label: 'Market Regime', icon: Activity },
   { to: '/stocks', label: 'Stocks', icon: LineChart },
   { to: '/watchlist', label: 'Watchlist', icon: Star },

@@ -17,11 +17,22 @@ export function topCategories(items: OpportunityScore[]): Record<string, Opportu
   const by = (fn: (o: OpportunityScore) => number) => [...items].sort((a, b) => fn(b) - fn(a)).slice(0, 5);
   const val = (label: string) => (o: OpportunityScore) => o.breakdown.find((b) => b.label === label)?.earned ?? 0;
   return {
-    'Best Momentum': by(val('MOMENTUM')),
-    'Best Trend': by(val('TREND')),
-    'Best Volume': by(val('VOLUME')),
-    'Best Relative Strength': by(val('RELATIVE STRENGTH')),
-    'Most Oversold': [...items].sort((a, b) => a.score - b.score).slice(0, 5),
-    'Most Overbought': [...items].sort((a, b) => b.score - a.score).slice(0, 5),
+    'Melhor Momentum': by(val('MOMENTUM')),
+    'Melhor Tendência': by(val('TREND')),
+    'Melhor Volume': by(val('VOLUME')),
+    'Melhor Força Relativa': by(val('RELATIVE STRENGTH')),
+    'Maior Confiança': [...items].sort((a, b) => b.confidence - a.confidence || b.score - a.score).slice(0, 5),
+    'Melhor Qualidade de Dados': [...items].sort((a, b) => b.dataQuality - a.dataQuality || b.score - a.score).slice(0, 5),
   };
+}
+
+export type Conviction = 'ELITE' | 'FORTE' | 'OBSERVAR' | 'EVITAR';
+
+/** Tier de convicção: combina score + confiança + qualidade + sinal. */
+export function convictionOf(o: OpportunityScore): Conviction {
+  if (o.signal === 'SELL') return 'EVITAR';
+  if (o.signal === 'BUY' && o.score >= 75 && o.confidence >= 65 && o.dataQuality >= 60) return 'ELITE';
+  if (o.score >= 65 && o.confidence >= 55 && o.dataQuality >= 50) return 'FORTE';
+  if (o.score >= 50) return 'OBSERVAR';
+  return 'EVITAR';
 }

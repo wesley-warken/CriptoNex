@@ -91,6 +91,7 @@ export function Monitor() {
   const [tab, setTab] = useState('Overview');
   const [candles, setCandles] = useState<Candle[]>([]);
   const [daily, setDaily] = useState<Candle[]>([]);
+  const [retryKey, setRetryKey] = useState(0);
   // Janela de análise (300): gráfico exibe até 1000, mas score/sinais/backtest
   // rodam nos 300 recentes — O(N²) do backtest trava a página com 1000 a cada tick
   const [analysis, setAnalysis] = useState<Candle[]>([]);
@@ -137,7 +138,7 @@ export function Monitor() {
     load();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbol, tf]);
+  }, [symbol, tf, retryKey]);
 
   // Tempo real tick-a-tick via WebSocket (pares Binance); resto usa o polling acima
   useEffect(() => {
@@ -291,7 +292,7 @@ export function Monitor() {
         {score && <><ScoreAudit score={score} /><Badge tone={score.signal === 'BUY' ? 'up' : score.signal === 'SELL' ? 'down' : 'warn'}>{score.signal} · {score.confidence}%</Badge></>}
       </div>
       {loading && <Skeleton className="h-96" />}
-      {error && <ErrorBox message={error} onRetry={() => setTf((t) => t)} />}
+      {error && <ErrorBox message={error} onRetry={() => setRetryKey((x) => x + 1)} />}
       {!loading && !error && (
         <>
           <Fullscreen title={`Candles ${symbol} · ${tf}`}>

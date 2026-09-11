@@ -11,6 +11,7 @@ export function BacktestingPage() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -23,7 +24,7 @@ export function BacktestingPage() {
       finally { if (alive) setLoading(false); }
     })();
     return () => { alive = false; };
-  }, [symbol]);
+  }, [symbol, retryKey]);
   const r = useMemo(() => (candles.length >= 60 ? backtest(candles, threshold, 7) : null), [candles, threshold]);
   return (
     <div className="space-y-3">
@@ -36,7 +37,7 @@ export function BacktestingPage() {
         </div>
       </Panel>
       {loading && <Skeleton className="h-48" />}
-      {error && <ErrorBox message={error} onRetry={() => setSymbol((s) => s)} />}
+      {error && <ErrorBox message={error} onRetry={() => setRetryKey((x) => x + 1)} />}
       {r && (
         <div className="grid gap-3 md:grid-cols-3">
           {[['Trades', String(r.trades)], ['Win rate', `${r.winRate.toFixed(1)}%`], ['Retorno médio', `${r.avgReturn.toFixed(2)}%`], ['Profit factor', r.profitFactor.toFixed(2)], ['Max drawdown', `${r.maxDrawdown.toFixed(1)}%`], ['Amostra', r.sampleEnough ? 'Suficiente (n≥20)' : 'Insufficient sample size']].map(([k, v]) => (

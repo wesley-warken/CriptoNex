@@ -36,6 +36,7 @@ export function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/portfolio" element={<Portfolio />} />
           <Route path="/radar" element={<Radar />} />
+          <Route path="/oportunidades" element={<Opportunities />} />
           <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/regime" element={<RegimePage />} />
           <Route path="/stocks" element={<Stocks />} />

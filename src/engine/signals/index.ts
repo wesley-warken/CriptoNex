@@ -24,10 +24,14 @@ export function buildSignals(candles: Candle[], snap?: IndicatorSnapshot): Signa
   push('RSI', s.rsi == null ? 'NEUTRAL' : s.rsi < 30 ? 'BUY' : s.rsi > 70 ? 'SELL' : s.rsi >= 50 ? 'BUY' : 'SELL', 1.0, s.rsi == null ? 'RSI indisponível' : `RSI = ${s.rsi.toFixed(1)}`);
   push('MACD', s.macdSignal ?? 'NEUTRAL', 1.1, s.macdHist == null ? 'MACD indisponível' : `Hist ${s.macdHist.toFixed(4)}`);
   push('Supertrend', s.supertrend === 'BULLISH' ? 'BUY' : s.supertrend === 'BEARISH' ? 'SELL' : 'NEUTRAL', 1.3, s.supertrend ? `Supertrend ${s.supertrend.toLowerCase()}` : 'Supertrend indisponível');
-  push('ADX', s.adx == null ? 'NEUTRAL' : s.adx >= 25 ? (out[out.length - 1]?.signal === 'SELL' ? 'SELL' : 'BUY') : 'NEUTRAL', 0.7, s.adx == null ? 'ADX indisponível' : `ADX = ${s.adx.toFixed(1)}`);
+  // ADX mede força, não direção: só vota com a direção do Supertrend quando há direção definida.
+  const stDir = out[out.length - 1]?.signal;
+  push('ADX', s.adx == null ? 'NEUTRAL' : s.adx >= 25 ? (stDir === 'BUY' ? 'BUY' : stDir === 'SELL' ? 'SELL' : 'NEUTRAL') : 'NEUTRAL', 0.7, s.adx == null ? 'ADX indisponível' : `ADX = ${s.adx.toFixed(1)}`);
   push('Stochastic', s.stochK == null ? 'NEUTRAL' : s.stochK < 20 ? 'BUY' : s.stochK > 80 ? 'SELL' : 'NEUTRAL', 0.7, s.stochK == null ? 'Stoch indisponível' : `Stoch K=${s.stochK.toFixed(1)}`);
   push('Bollinger', s.bbUpper != null && s.bbLower != null ? (price > s.bbUpper ? 'SELL' : price < s.bbLower ? 'BUY' : 'NEUTRAL') : 'NEUTRAL', 0.6, 'Preço vs bandas');
-  push('Volume', s.volumeRatio == null ? 'NEUTRAL' : s.volumeRatio >= 1.5 ? (out[0]?.signal === 'SELL' ? 'SELL' : 'BUY') : 'NEUTRAL', 0.9, s.volumeRatio == null ? 'Volume indisponível' : `Volume ${s.volumeRatio.toFixed(2)}× média 20`);
+  // Volume confirma a direção da SMA; sem direção definida, fica neutro (sem viés BUY).
+  const smaDir = out[0]?.signal;
+  push('Volume', s.volumeRatio == null ? 'NEUTRAL' : s.volumeRatio >= 1.5 ? (smaDir === 'BUY' ? 'BUY' : smaDir === 'SELL' ? 'SELL' : 'NEUTRAL') : 'NEUTRAL', 0.9, s.volumeRatio == null ? 'Volume indisponível' : `Volume ${s.volumeRatio.toFixed(2)}× média 20`);
 
   let bullish = 0, bearish = 0, neutral = 0;
   let score = 0, wsum = 0;
