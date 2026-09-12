@@ -7,28 +7,33 @@ import { ensureTopKlines, closesToCandles, snapOf, type IndSnap } from '@/servic
 import { ensureRsiTable, getIntervalKlines, rsiBand, RSI_COLS, RSI_SORT_KEYS, sampleEvery, type RsiCol, type RsiFilter, type RsiOp, type RsiSnap } from '@/services/rsiTable';
 import { coinTrend, coinTrendMultiTF, shiftLabel, TREND_LEVEL, TREND_MODE_LEGS, type CoinTrend, type TrendOhlc, type TrendState, type TrendTf } from '@/engine/trend';
 import { unusualMove } from '@/engine/attention';
+import { aggregateClosed, floorPivots, type Pivots } from '@/engine/pivots';
+import { detectPatterns, loadPatSeen, savePatSeen, type DetectedPattern, type PatternSentiment } from '@/engine/patterns';
+import { syncWedgeLog, wedgeBreakStats, type WedgeKind, type WedgeState } from '@/engine/wedges';
 import { computeMaSet, ensureMaKlines, maCrossDiff, maCrossTitle, slowsFor, MA_FASTS, type MaFast, type MaKind, type MaSet } from '@/services/maTable';
 import { isActiveCoin, isStablecoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle } from '@/types';
 import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty, Seg, Btn, Micro } from '@/components/ui/kit';
-import { ArrowUpRight, BarChart3, Bell, CheckCircle2, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Bell, CheckCircle2, ChevronLeft, ChevronRight, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
 import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
 import {
-  buildMonData, evalFilter, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen,
+  buildMonData, evalFilter, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen, whyFilter,
   MON_COLORS, MON_FIELDS, MON_ICONS, MON_INDICATORS, MON_OPS, MON_TFS, PRESET_FILTERS, TREND_LEVEL_OPTIONS,
   type MonColor, type MonCondition, type MonData, type MonFilter, type MonIndicator, type MonOp, type MonTf,
 } from '@/engine/monitor';
 
-type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR';
-type SortKey = 'marketCap' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
+type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR' | 'PAT';
+type SortKey = 'marketCap' | 'symbol' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
   | 'trendCurto' | 'trendMedio' | 'trendLongo' | 'mudCurto' | 'mudMedio' | 'mudLongo' | RsiCol
   | 'stochFast' | 'stochSlow' | 'superH1' | 'superH4' | 'superD1' | 'superW1'
-  | 'attToday' | 'attRatio' | 'bbUpper' | 'bbLower';
+  | 'attToday' | 'attRatio' | 'bbUpper' | 'bbLower'
+  | 'srS1' | 'srS2' | 'srS3' | 'srR1' | 'srR2' | 'srR3';
 
 const TABS: { k: Tab; label: string }[] = [
   { k: 'MON', label: 'Monitor' },
+  { k: 'PAT', label: 'Padrões' },
   { k: 'BTC', label: 'BTC vs Altcoins' },
   { k: 'PERF', label: 'Performance' },
   { k: 'TREND', label: 'Tendência' },
@@ -42,7 +47,7 @@ const TABS: { k: Tab; label: string }[] = [
   { k: 'EMA', label: 'EMA' },
   { k: 'SR', label: 'S/R' },
 ];
-const IND_TABS: Tab[] = ['STOCH', 'VOL', 'MACD', 'SR'];
+const IND_TABS: Tab[] = ['STOCH', 'VOL', 'MACD', 'SR', 'PAT'];
 const ROW_H = 42;
 
 /** Stoch rápido/lento de um tempo gráfico. */
@@ -55,9 +60,25 @@ type SuperSnap = Record<'h1' | 'h4' | 'd1' | 'w1', SuperTf>;
 const SUPER_TFS: { k: keyof SuperSnap; label: string }[] = [
   { k: 'h1', label: '1h' }, { k: 'h4', label: '4h' }, { k: 'd1', label: '1d' }, { k: 'w1', label: '1s' },
 ];
+/** Cores das pills de tendência (puro p/ teste). Neutro = cinza; forte = fundo sólido + negrito. */
+export function trendBadge(s: TrendState | null): { bg: string; fg: string; bold: boolean } | null {
+  if (!s) return null;
+  if (s === 'Neutro') return { bg: 'rgba(255,255,255,0.06)', fg: 'var(--muted)', bold: false };
+  const up = s.startsWith('Alta');
+  const strong = s.endsWith('Forte');
+  const c = up ? '--up' : '--down';
+  return { bg: `color-mix(in srgb, var(${c}) ${strong ? 32 : 18}%, transparent)`, fg: `var(${c})`, bold: strong };
+}
+/** Texto/cores das pills de mudança de tendência (puro p/ teste). */
+export function shiftBadge(m: { from: TrendState; to: TrendState; delta: number } | null): { text: string; bg: string; fg: string } | null {
+  if (!m) return null;
+  if (m.delta === 0) return { text: `Mantém ${shiftLabel(m.to)}`, bg: 'rgba(255,255,255,0.06)', fg: 'var(--muted)' };
+  const up = m.delta > 0;
+  const c = up ? '--up' : '--down';
+  return { text: `${shiftLabel(m.from)} para ${shiftLabel(m.to)}`, bg: `color-mix(in srgb, var(${c}) 16%, transparent)`, fg: `var(${c})` };
+}
 /** Ícones desenhados dos filtros (nunca emoji como sistema de ícones). */
-const MON_ICON_MAP: Record<string, LucideIcon> = {
-  'trend-up': TrendingUp, alert: TriangleAlert, flame: Flame, check: CheckCircle2,
+const MON_ICON_MAP: Record<string, LucideIcon> = {  'trend-up': TrendingUp, alert: TriangleAlert, flame: Flame, check: CheckCircle2,
   'trend-down': TrendingDown, gem: Gem, zap: Zap, siren: Siren,
   'up-right': ArrowUpRight, eye: Eye, star: Star,
 };
@@ -71,6 +92,16 @@ function cacheAge(ts: number | null): string {
   const m = Math.floor((Date.now() - ts) / 60000);
   if (m < 1) return 'cache agora mesmo';
   return `cache há ${m} min`;
+}
+
+/** Idade dos indicadores calculados ("há 3 min" / "agora mesmo"). */
+function dataAge(ts: number | null): string {
+  if (!ts) return '';
+  const m = Math.floor((Date.now() - ts) / 60000);
+  if (m < 1) return 'agora mesmo';
+  if (m < 60) return `há ${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `há ${h}h` : `há ${Math.floor(h / 24)}d`;
 }
 
 /** Stoch de um tempo gráfico a partir do sparkline horário (instantâneo). */
@@ -118,6 +149,7 @@ const toneUpDown = (v: number | null | undefined) => ({ color: (v ?? 0) >= 0 ? '
 export function Radar() {
   const u = useUniverseCrypto();
   const favs = useStore((s) => s.favorites);
+  const watchlist = useStore((s) => s.watchlist);
   const toggleFav = useStore((s) => s.toggleFav);
   const toggleWatch = useStore((s) => s.toggleWatch);
   const [q, setQ] = useState('');
@@ -138,10 +170,19 @@ export function Radar() {
       ? new Set(u.coins.filter((c) => (c.rank ?? Infinity) <= topN).map((c) => c.id))
       : new Set([...u.coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, topN).map((c) => c.id));
   }, [u.coins, topN]);
+  /** Opções do "Selecione uma crypto": top 200 por market cap. */
+  const jumpOpts = useMemo(() => {
+    return [...u.coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, 200);
+  }, [u.coins]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [selCrypto, setSelCrypto] = useState('');
+  const [trendExpanded, setTrendExpanded] = useState(false);
   const [snaps, setSnaps] = useState<Map<string, IndSnap>>(new Map());
   const [klines, setKlines] = useState<Map<string, Candle[]>>(new Map());
   const [indProg, setIndProg] = useState<{ done: number; total: number } | null>(null);
+  /** Quando os indicadores da aba atual terminaram de calcular (selo de idade). */
+  const [indAt, setIndAt] = useState<number | null>(null);
   const [rsiSnaps, setRsiSnaps] = useState<Map<string, RsiSnap>>(new Map());
   const [rsiPartial, setRsiPartial] = useState(false);
   const [indTf, setIndTf] = useState<'1d' | TrendTf>('1d');
@@ -204,6 +245,27 @@ export function Radar() {
   const [rsiFilterOpen, setRsiFilterOpen] = useState(false);
   const [rsiDraft, setRsiDraft] = useState<{ col: RsiCol; op: RsiOp; value: string }>({ col: 'rsiH4', op: 'gte', value: '70' });
 
+  // ---- Padrões gráficos (aba PAT) ----
+  const [patPatterns, setPatPatterns] = useState<string[]>([]);
+  const [patSentiment, setPatSentiment] = useState<'Todas' | PatternSentiment>('Todas');
+  const [patListOpen, setPatListOpen] = useState(false);
+  const [patSort, setPatSort] = useState<{ k: 'time' | 'pattern' | 'sentiment' | 'stage'; d: 1 | -1 }>({ k: 'time', d: -1 });
+  const [patFirstSeen, setPatFirstSeen] = useState<Record<string, number>>(() => loadPatSeen());
+
+  // ---- S/R (aba SR): pivôs floor semanais (5 diários fechados), mesmo motor do Monitor ----
+  const srPivots = useMemo(() => {
+    const m = new Map<string, Pivots>();
+    for (const [s, kl] of klines) {
+      try {
+        const base = aggregateClosed(kl, 5);
+        if (base) m.set(s, floorPivots(base.high, base.low, base.close));
+      } catch {
+        /* moeda sem leitura */
+      }
+    }
+    return m;
+  }, [klines]);
+
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let list: UniverseCoin[] = u.coins;
@@ -253,6 +315,11 @@ export function Radar() {
         const v = slow == null ? null : maCrossDiff(maVals.get(c.symbol) ?? null, tab, cfg, slow);
         return v ?? (sort.d === -1 ? -Infinity : Infinity);
       }
+      if (sort.k === 'srS1' || sort.k === 'srS2' || sort.k === 'srS3' || sort.k === 'srR1' || sort.k === 'srR2' || sort.k === 'srR3') {
+        const pv = srPivots.get(c.symbol);
+        const v = pv ? pv[sort.k.slice(2).toLowerCase() as 's1' | 's2' | 's3' | 'r1' | 'r2' | 'r3'] : null;
+        return v ?? (sort.d === -1 ? -Infinity : Infinity);
+      }
       return c[sort.k as 'marketCap' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'] ?? (sort.d === -1 ? -Infinity : Infinity);
     };
     // Top N sempre pelo rank de market cap (vale p/ PERF, BTC e Tendência 1d);
@@ -270,9 +337,9 @@ export function Radar() {
         return rsiFilter.op === 'gte' ? v >= t : rsiFilter.op === 'lte' ? v <= t : rsiFilter.op === 'gt' ? v > t : v < t;
       });
     }
+    if (sort.k === 'symbol') return [...list].sort((a, b) => a.symbol.localeCompare(b.symbol) * sort.d);
     return [...list].sort((a, b) => (val(a) - val(b)) * sort.d);
-  }, [u.coins, q, onlyActive, hideStables, showAll, sort, tab, mcapTopIds, rsiSnaps, rsiFilter, indTf, trendWarm, superSnaps, smaCfg, emaCfg, maVals]);
-
+  }, [u.coins, q, onlyActive, hideStables, showAll, sort, tab, mcapTopIds, rsiSnaps, rsiFilter, indTf, trendWarm, superSnaps, smaCfg, emaCfg, maVals, srPivots]);
   useEffect(() => {
     setCount(500);
   }, [q, onlyActive, hideStables, showAll, sort, tab]);
@@ -294,6 +361,7 @@ export function Radar() {
       setSnaps(sn);
       setKlines(kl);
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -318,6 +386,7 @@ export function Radar() {
       setRsiSnaps(snaps);
       setRsiPartial(!binanceOk);
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -341,6 +410,7 @@ export function Radar() {
       if (!alive) return;
       setMaKlines(kl);
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -402,6 +472,7 @@ export function Radar() {
       if (!alive) return;
       setTrendWarm(out);
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -457,6 +528,7 @@ export function Radar() {
       setMonFirstSeen(fs);
       setMonSecs(Math.max(1, Math.round((Date.now() - t0) / 1000)));
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -512,6 +584,7 @@ export function Radar() {
       if (!alive) return;
       setSuperSnaps(out);
       setIndProg(null);
+      setIndAt(Date.now());
     })();
     return () => {
       alive = false;
@@ -520,10 +593,102 @@ export function Radar() {
   }, [tab, fetchN]);
 
   const shown = useMemo(() => {
-    if (tab === 'MON') return [];
+    if (tab === 'MON' || tab === 'PAT') return [];
     if (tab === 'PERF' || tab === 'BTC' || (tab === 'TREND' && indTf === '1d')) return rows;
     return rows.slice(0, fetchN);
   }, [rows, count, tab, indTf, fetchN]);
+
+  // ---- Feed de padrões (todos os padrões por moeda + firstSeen) ----
+  const patMap = useMemo(() => {
+    if (tab !== 'PAT') return new Map<string, DetectedPattern[]>();
+    const m = new Map<string, DetectedPattern[]>();
+    for (const [s, kl] of klines) {
+      try {
+        const found = detectPatterns(kl);
+        if (!found.length) continue;
+        // Cunhas verificadas ganham certeza medida: % histórico de rompimento
+        // a favor (só onde há selo — punhado de moedas, custo irrisório).
+        const closes = kl.map((k) => k.close);
+        m.set(s, found.map((p) => {
+          const kind: WedgeKind | null =
+            p.pattern === 'Cunha Descendente Verificada' ? 'desc'
+            : p.pattern === 'Cunha Ascendente Verificada' ? 'asc' : null;
+          if (!kind) return p;
+          try {
+            const st = wedgeBreakStats(closes, kind);
+            if (st && st.n >= 3) {
+              return { ...p, detail: `${p.detail} · histórico: ${st.n} breaks, ${st.favorPct}% a favor` };
+            }
+          } catch {
+            /* sem histórico */
+          }
+          return p;
+        }));
+      } catch {
+        /* moeda sem leitura */
+      }
+    }
+    return m;
+  }, [tab, klines]);
+
+  useEffect(() => {
+    if (tab !== 'PAT' || !patMap.size) return;
+    const fs = loadPatSeen();
+    let changed = false;
+    const now = Date.now();
+    for (const [s, list] of patMap) {
+      for (const p of list) {
+        const k = `${p.pattern}:${s}`;
+        if (!fs[k]) { fs[k] = now; changed = true; }
+      }
+    }
+    if (changed) savePatSeen(fs);
+    setPatFirstSeen(fs);
+    // Log de selos de cunha: emitido → confirmado → revogado (caiu sozinho).
+    try {
+      const entries: { symbol: string; kind: WedgeKind; state: WedgeState; price: number }[] = [];
+      for (const [s, list] of patMap) {
+        for (const p of list) {
+          const kind: WedgeKind | null =
+            p.pattern === 'Cunha Descendente Verificada' ? 'desc'
+            : p.pattern === 'Cunha Ascendente Verificada' ? 'asc' : null;
+          if (!kind) continue;
+          const px = klines.get(s)?.slice(-1)[0]?.close;
+          if (px) entries.push({ symbol: s, kind, state: p.stage === 'Confirmado' ? 'confirmed' : 'forming', price: px });
+        }
+      }
+      syncWedgeLog(entries);
+    } catch {
+      /* log é acessório */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, patMap]);
+
+  const patFeed = useMemo(() => {
+    if (tab !== 'PAT') return [];
+    const needle = q.trim().toLowerCase();
+    const bySymbol = new Map<string, UniverseCoin>();
+    for (const c of rows) if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c);
+    const out: { coin: UniverseCoin; pat: DetectedPattern; seen: number }[] = [];
+    for (const [s, list] of patMap) {
+      const coin = bySymbol.get(s);
+      if (!coin) continue;
+      if (needle && !coin.symbol.toLowerCase().includes(needle) && !coin.name.toLowerCase().includes(needle)) continue;
+      for (const p of list) {
+        if (patPatterns.length && !patPatterns.includes(p.pattern)) continue;
+        if (patSentiment !== 'Todas' && p.sentiment !== patSentiment) continue;
+        out.push({ coin, pat: p, seen: patFirstSeen[`${p.pattern}:${s}`] ?? 0 });
+      }
+    }
+    const dir = patSort.d;
+    const byTime = (a: (typeof out)[number], b: (typeof out)[number]) => (a.seen - b.seen) * dir;
+    const byStr = (f: (e: (typeof out)[number]) => string) => (a: (typeof out)[number], b: (typeof out)[number]) => f(a).localeCompare(f(b)) * dir;
+    if (patSort.k === 'pattern') out.sort(byStr((e) => e.pat.pattern));
+    else if (patSort.k === 'sentiment') out.sort(byStr((e) => e.pat.sentiment));
+    else if (patSort.k === 'stage') out.sort(byStr((e) => e.pat.stage));
+    else out.sort(byTime);
+    return out;
+  }, [tab, rows, q, patMap, patPatterns, patSentiment, patFirstSeen, patSort]);
 
   const monFeed = useMemo(() => {
     if (tab !== 'MON') return [];
@@ -531,14 +696,22 @@ export function Radar() {
     const byId = new Map(allMonFilters.map((f) => [f.id, f]));
     const bySymbol = new Map<string, UniverseCoin>();
     for (const c of rows) if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c);
-    const out: { coin: UniverseCoin; filter: MonFilter; seen: number }[] = [];
+    const out: { coin: UniverseCoin; filter: MonFilter; seen: number; why: string }[] = [];
     for (const md of monData.values()) {
       const coin = bySymbol.get(md.symbol);
       if (!coin) continue;
       if (needle && !coin.symbol.toLowerCase().includes(needle) && !coin.name.toLowerCase().includes(needle)) continue;
       for (const f of activeMonFilters) {
         if (!byId.has(f.id)) continue;
-        if (evalFilter(md, f)) out.push({ coin, filter: f, seen: monFirstSeen[`${f.id}:${md.symbol}`] ?? 0 });
+        if (evalFilter(md, f)) {
+          let why = '';
+          try {
+            why = whyFilter(md, f);
+          } catch {
+            /* linha sem porquê */
+          }
+          out.push({ coin, filter: f, seen: monFirstSeen[`${f.id}:${md.symbol}`] ?? 0, why });
+        }
       }
     }
     const sorted = out.sort((a, b) => b.seen - a.seen);
@@ -603,29 +776,27 @@ export function Radar() {
     { k: 'lt', label: 'Menor que' },
   ];
   const trendPill = (s: TrendState | null) => {
-    if (!s) return dash;
+    const b = trendBadge(s);
+    if (!b) return dash;
     if (s === 'Neutro') return <span className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] font-semibold text-muted">{s}</span>;
-    const up = s.startsWith('Alta');
-    const strong = s.endsWith('Forte');
     return (
       <span
-        className={`rounded px-1.5 py-0.5 text-[11px] ${strong ? 'font-bold' : 'font-semibold'}`}
-        style={{ background: `color-mix(in srgb, var(${up ? '--up' : '--down'}) ${strong ? 25 : 12}%, transparent)`, color: `var(${up ? '--up' : '--down'})` }}
+        className={`rounded px-1.5 py-0.5 text-[11px] ${b.bold ? 'font-bold' : 'font-semibold'}`}
+        style={{ background: b.bg, color: b.fg }}
       >
         {s}
       </span>
     );
   };
   const shiftPill = (m: { from: TrendState; to: TrendState; delta: number } | null) => {
-    if (!m) return dash;
-    if (m.delta === 0) return <span className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] font-semibold text-muted">Mantém {shiftLabel(m.to)}</span>;
-    const up = m.delta > 0;
+    const b = shiftBadge(m);
+    if (!b) return dash;
     return (
       <span
         className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
-        style={{ background: `color-mix(in srgb, var(${up ? '--up' : '--down'}) 10%, transparent)`, color: `var(${up ? '--up' : '--down'})` }}
+        style={{ background: b.bg, color: b.fg }}
       >
-        {shiftLabel(m.from)} para {shiftLabel(m.to)}
+        {b.text}
       </span>
     );
   };
@@ -637,9 +808,12 @@ export function Radar() {
     { h: 'Fav' as React.ReactNode, w: '3.5rem' },
   ];
   const cols: Record<Tab, { h: React.ReactNode; w: string }[]> = {
-    // MON usa feed próprio (Business/Realtime); colunas só para satisfazer o tipo
+    // MON/PAT usam feed próprio; colunas só para satisfazer o tipo
     MON: [
       { h: 'Data', w: '9.5rem' }, { h: 'Moeda', w: '11rem' }, { h: 'Descrição', w: '1fr' }, { h: 'Ações', w: '5rem' },
+    ],
+    PAT: [
+      { h: 'Moeda', w: '11rem' }, { h: 'Data', w: '8rem' }, { h: 'Sentimento', w: '7rem' }, { h: 'Estágio', w: '8rem' }, { h: 'Padrão', w: '1fr' }, { h: 'Ações', w: '4rem' },
     ],
     BTC: [
       { h: '#', w: '3rem' }, { h: 'Ativo', w: '11rem' }, { h: '1h rel', w: '6rem' }, { h: '24h rel', w: '6rem' },
@@ -650,10 +824,10 @@ export function Radar() {
       { h: th('24h', 'change24h'), w: '6rem' }, { h: th('7d', 'change7d'), w: '6rem' }, { h: th('30d', 'change30d'), w: '6rem' }, { h: th('1a', 'change1y'), w: '6rem' }, { h: 'Fav', w: '4rem' },
     ],
     TREND: [
-      { h: 'Moeda', w: '9rem' }, { h: th('Rank', 'marketCap'), w: '4rem' },
+      { h: th('Moeda', 'symbol'), w: '11rem' }, { h: th('Rank', 'marketCap'), w: '4rem' },
       { h: th('Curto Prazo', 'trendCurto'), w: '6.5rem' }, { h: th('Médio Prazo', 'trendMedio'), w: '6.5rem' }, { h: th('Longo Prazo', 'trendLongo'), w: '6.5rem' },
       { h: th('Mudança (Curto)', 'mudCurto'), w: '10.5rem' }, { h: th('Mudança (Médio)', 'mudMedio'), w: '10.5rem' }, { h: th('Mudança (Longo)', 'mudLongo'), w: '10.5rem' },
-      { h: 'Fav', w: '3.5rem' },
+      { h: '', w: '5rem' },
     ],
     RSI: [
       { h: 'Moeda', w: '9rem' }, { h: th('Rank', 'marketCap'), w: '3.5rem' }, { h: th('Preço', 'price'), w: '6.5rem' },
@@ -687,7 +861,12 @@ export function Radar() {
     ],
     SMA: maColsFor('SMA', smaCfg),
     EMA: maColsFor('EMA', emaCfg),
-    SR: [{ h: '#', w: '3rem' }, { h: 'Ativo', w: '11rem' }, { h: 'Máx 30d', w: '7rem' }, { h: 'Mín 30d', w: '7rem' }, { h: 'Dist. topo', w: '8rem' }, { h: 'Fav', w: '4rem' }],
+    SR: [
+      { h: 'Moeda', w: '11rem' }, { h: th('Preço atual', 'price'), w: '7rem' },
+      { h: th('Suporte 1', 'srS1'), w: '7rem' }, { h: th('Suporte 2', 'srS2'), w: '7rem' }, { h: th('Suporte 3', 'srS3'), w: '7rem' },
+      { h: th('Resistência 1', 'srR1'), w: '7rem' }, { h: th('Resistência 2', 'srR2'), w: '7rem' }, { h: th('Resistência 3', 'srR3'), w: '7rem' },
+      { h: 'Fav', w: '4rem' },
+    ],
   };
   const gridCols = cols[tab].map((c) => c.w).join(' ');
 
@@ -706,6 +885,8 @@ export function Radar() {
     <span className="text-xs normal-case text-muted">
       {indProg ? ` calculando ${indProg.done}/${indProg.total}…` : ` top ${fetchN} por market cap · ${indCount} com indicadores`}
       {tab === 'RSI' && rsiPartial && !indProg && ' · Binance fora, via alternativas (lento)'}
+      {tab === 'SR' && !indProg && ' · base semanal (5 diários fechados = Monitor no 1d)'}
+      {!indProg && indAt && ` · calculado ${dataAge(indAt)}`}
     </span>
   );
   const stochStatus = (v: number | null | undefined) => {
@@ -794,6 +975,9 @@ export function Radar() {
       case 'MON':
         // Feed próprio (Business/Realtime) renderizado fora da grade virtualizada
         return null;
+      case 'PAT':
+        // Feed próprio de padrões renderizado fora da grade virtualizada
+        return null;
       case 'BTC': {
         const rel = (v: number | null | undefined, b: number | null | undefined) => (v == null || b == null ? null : v - b);
         return (<>
@@ -819,8 +1003,13 @@ export function Radar() {
       case 'TREND': {
         // Warm (consenso, fonte única) com fallback cold instantâneo
         const t = trendFor(d);
+        const isFav = favs.includes(d.symbol);
+        const isWatch = watchlist.includes(d.symbol);
         return (<>
-          {cellAsset(d)}
+          <span className="flex min-w-0 items-center gap-1.5">
+            <button onClick={() => toggleFav(d.symbol)} title={isFav ? 'Remover dos favoritos' : 'Favoritar'} className={`shrink-0 text-base ${isFav ? 'text-[var(--warn)]' : 'text-muted hover:text-white'}`}>{isFav ? '★' : '☆'}</button>
+            {coinIcon(d)}{cellAsset(d)}
+          </span>
           <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
           <span>{trendPill(t?.curto ?? null)}</span>
           <span>{trendPill(t?.medio ?? null)}</span>
@@ -828,7 +1017,10 @@ export function Radar() {
           <span>{shiftPill(t?.mudCurto ?? null)}</span>
           <span>{shiftPill(t?.mudMedio ?? null)}</span>
           <span>{shiftPill(t?.mudLongo ?? null)}</span>
-          {cellFav(d)}
+          <span className="flex items-center gap-1.5">
+            <button onClick={() => toggleWatch(d.symbol)} title={isWatch ? 'Remover do watchlist' : 'Observar'} className={`text-xs ${isWatch ? 'font-bold text-[var(--accent)]' : 'text-muted hover:text-white'}`}>+W</button>
+            <Link to={`/monitor?symbol=${d.symbol}`} title="Abrir gráfico" className="rounded-md bg-[var(--surface-2)] p-1.5 text-muted hover:text-white"><BarChart3 size={15} /></Link>
+          </span>
         </>);
       }
       case 'RSI': {
@@ -961,16 +1153,23 @@ export function Radar() {
         </>);
       }
       case 'SR': {
-        const closes = kl?.map((k) => k.close) ?? [];
-        const hi = closes.length ? Math.max(...closes.slice(-30)) : null;
-        const lo = closes.length ? Math.min(...closes.slice(-30)) : null;
-        const dist = hi && d.price ? ((hi / d.price - 1) * 100) : null;
+        const pv = srPivots.get(d.symbol);
+        const lvl = (v: number | null | undefined) => (
+          <span className="tabular">{v != null ? fmtPrice(v) : '—'}</span>
+        );
         return (<>
-          <span className="tabular text-xs text-muted">{idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular">{hi != null ? fmtPrice(hi) : '—'}</span>
-          <span className="tabular">{lo != null ? fmtPrice(lo) : '—'}</span>
-          <span className="tabular">{dist != null ? `-${dist.toFixed(1)}% do topo` : '—'}</span>
+          <span>
+            <span className="tabular rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: 'color-mix(in srgb, var(--warn) 22%, transparent)', color: 'var(--warn)' }}>
+              {d.price != null ? fmtPrice(d.price) : '—'}
+            </span>
+          </span>
+          {lvl(pv?.s1)}
+          {lvl(pv?.s2)}
+          {lvl(pv?.s3)}
+          {lvl(pv?.r1)}
+          {lvl(pv?.r2)}
+          {lvl(pv?.r3)}
           {cellFav(d)}
         </>);
       }
@@ -1055,7 +1254,45 @@ export function Radar() {
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-[var(--border)]">
+      {tab === 'TREND' && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5">
+          <span className="text-sm font-bold">Indicadores</span>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <Seg
+              options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
+              value={indTf}
+              onChange={(v) => setIndTf(v)}
+            />
+            <select
+              value={selCrypto}
+              onChange={(e) => { const v = e.target.value; setSelCrypto(v); setQ(v); }}
+              className="min-w-56 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-sm"
+              title="Filtra a tabela para a crypto escolhida"
+            >
+              <option value="">Selecione uma crypto</option>
+              {jumpOpts.map((c) => <option key={c.id} value={c.symbol}>{c.name} {c.symbol}</option>)}
+            </select>
+            <button
+              onClick={() => { if (selCrypto) toggleFav(selCrypto); }}
+              disabled={!selCrypto}
+              title={selCrypto ? (favs.includes(selCrypto) ? `Remover ${selCrypto} dos favoritos` : `Favoritar ${selCrypto}`) : 'Escolha uma crypto primeiro'}
+              className={`rounded-lg border border-[var(--border)] p-2 ${!selCrypto ? 'opacity-40' : favs.includes(selCrypto) ? 'text-[var(--warn)]' : 'text-muted hover:text-white'}`}
+            >
+              <Star size={18} fill={selCrypto && favs.includes(selCrypto) ? 'currentColor' : 'none'} />
+            </button>
+            <button
+              onClick={() => setTrendExpanded((v) => !v)}
+              title={trendExpanded ? 'Compactar tabela' : 'Expandir tabela'}
+              className="rounded-lg border border-[var(--border)] p-2 text-[var(--up)] hover:text-white"
+            >
+              <Maximize2 size={16} />
+            </button>
+          </span>
+        </div>
+      )}
+      <div className="flex items-center gap-1 border-b border-[var(--border)]">
+        <button onClick={() => tabsRef.current?.scrollBy({ left: -320 })} title="Rolar abas" className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-muted hover:text-white"><ChevronLeft size={16} /></button>
+        <div ref={tabsRef} className="flex flex-1 gap-x-5 gap-y-1 overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.k}
@@ -1063,20 +1300,24 @@ export function Radar() {
               setTab(t.k);
               if (t.k === 'SMA' || t.k === 'EMA') { setMaSearch(''); setMaModal(t.k); }
             }}
-            className={t.k === tab ? '-mb-px border-b-2 border-[var(--up)] pb-1.5 text-sm font-bold text-[var(--up)]' : 'pb-1.5 text-sm text-muted hover:text-white'}
+            className={t.k === tab ? '-mb-px shrink-0 border-b-2 border-[var(--up)] pb-1.5 text-sm font-bold text-[var(--up)]' : 'shrink-0 pb-1.5 text-sm text-muted hover:text-white'}
           >
             {t.label}
           </button>
         ))}
-        <span className="ml-2 inline-flex items-center gap-1" title="Quantas moedas por market cap entram em cada radar">
+        </div>
+        <button onClick={() => tabsRef.current?.scrollBy({ left: 320 })} title="Rolar abas" className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-muted hover:text-white"><ChevronRight size={16} /></button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="inline-flex items-center gap-1" title="Quantas moedas por market cap entram em cada radar">
           <Seg
             options={[{ k: '100', label: 'Top 100' }, { k: '200', label: 'Top 200' }, { k: '300', label: 'Top 300' }, { k: 'all', label: 'Todas' }] as const}
             value={topN == null ? 'all' : String(topN) as '100' | '200' | '300' | 'all'}
             onChange={(v) => setTopN(v === 'all' ? null : Number(v))}
           />
         </span>
-        {(tab === 'TREND' || tab === 'STOCH' || tab === 'BB' || tab === 'SMA' || tab === 'EMA') && (
-          <span className="ml-2">
+        {(tab === 'STOCH' || tab === 'BB' || tab === 'SMA' || tab === 'EMA') && (
+          <span>
             <Seg
               options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
               value={indTf}
@@ -1095,6 +1336,15 @@ export function Radar() {
           </>
         )}
         <button onClick={u.reload} className="rounded-lg border border-[var(--border)] px-2 py-1">Recarregar universo</button>
+        {tab === 'PAT' && (
+          <button
+            onClick={() => setPatListOpen(true)}
+            className="rounded-lg border border-[var(--border)] px-2 py-1 font-semibold"
+            style={patPatterns.length || patSentiment !== 'Todas' ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : undefined}
+          >
+            Filtrar{(patPatterns.length || patSentiment !== 'Todas') ? ' • ativo' : ''}
+          </button>
+        )}
         {tab === 'RSI' && (
           <button
             onClick={() => {
@@ -1118,11 +1368,11 @@ export function Radar() {
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <Badge tone="warn">rate limit — usando cache + backoff</Badge>}
               {indNote}
-              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}</span>)}
+              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}</span>)}
             </span>
           }
         >
-          {tab === 'MON' ? `Monitor — ${monFeed.length} alerta${monFeed.length === 1 ? '' : 's'}${monMode === 'realtime' ? ' (tempo real)' : ''}` : `Crypto Radar — ${rows.length.toLocaleString('pt-BR')} após filtros`}
+          {tab === 'MON' ? `Monitor — ${monFeed.length} alerta${monFeed.length === 1 ? '' : 's'}${monMode === 'realtime' ? ' (tempo real)' : ''}` : tab === 'PAT' ? `Padrões — ${patFeed.length} sinais` : `Crypto Radar — ${rows.length.toLocaleString('pt-BR')} após filtros`}
         </PanelTitle>
         {u.error && !u.coins.length && <ErrorBox message={u.error} onRetry={u.reload} />}
         {u.error && u.coins.length > 0 && (
@@ -1167,7 +1417,10 @@ export function Radar() {
                     >
                       {monIcon(e.filter.icon)}
                     </span>
-                    <strong className="truncate" style={{ color: monVar(e.filter.color) }}>{e.filter.name}</strong>
+                    <span className="min-w-0">
+                      <strong className="block truncate" style={{ color: monVar(e.filter.color) }}>{e.filter.name}</strong>
+                      {e.why && <span className="block truncate text-xs text-muted" title={e.why}>{e.why}</span>}
+                    </span>
                   </span>
                   <span className="flex items-center justify-end gap-2 text-muted">
                     <Link to={`/monitor?symbol=${e.coin.symbol}`} title="Abrir gráfico" className="hover:text-white"><BarChart3 size={15} /></Link>
@@ -1180,14 +1433,71 @@ export function Radar() {
               <div className="py-1 text-center text-xs text-muted">Mostrando 200 de {monFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
             )}
           </div>
+        ) : tab === 'PAT' ? (
+          <div className="max-h-[62vh] space-y-1 overflow-auto py-1">
+            <div className="grid items-center gap-2 px-3 text-xs text-muted" style={{ gridTemplateColumns: '9rem minmax(10rem,26%) 7rem 8rem 1fr 4rem' }}>
+              <button onClick={() => setPatSort((s) => ({ k: 'time', d: s.k === 'time' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
+                Data|Hora {patSort.k === 'time' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              </button>
+              <span>Moeda</span>
+              <button onClick={() => setPatSort((s) => ({ k: 'sentiment', d: s.k === 'sentiment' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
+                Sentimento {patSort.k === 'sentiment' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              </button>
+              <button onClick={() => setPatSort((s) => ({ k: 'stage', d: s.k === 'stage' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
+                Estágio {patSort.k === 'stage' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              </button>
+              <button onClick={() => setPatSort((s) => ({ k: 'pattern', d: s.k === 'pattern' ? ((s.d * -1) as 1 | -1) : 1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
+                Padrão Gráfico {patSort.k === 'pattern' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              </button>
+              <span className="text-right">Análise</span>
+            </div>
+            {patFeed.length === 0 ? (
+              <Empty
+                title={indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : 'Nenhum padrão no momento'}
+                hint="Ajuste os filtros no funil ou aguarde novas formações."
+              />
+            ) : (
+              patFeed.slice(0, 200).map((e) => {
+                const tone = e.pat.sentiment === 'Bullish' ? 'var(--up)' : e.pat.sentiment === 'Bearish' ? 'var(--down)' : 'var(--muted)';
+                const stTone = e.pat.stage === 'Rompimento' ? 'var(--down)' : 'var(--warn)';
+                return (
+                  <div
+                    key={`${e.pat.pattern}:${e.coin.symbol}`}
+                    className="grid items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--surface-2)]"
+                    style={{ gridTemplateColumns: '9rem minmax(10rem,26%) 7rem 8rem 1fr 4rem' }}
+                  >
+                    <span className="tabular text-xs text-muted">{e.seen ? fmtDT(e.seen) : '—'}</span>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className="shrink-0 text-base text-muted">{favs.includes(e.coin.symbol) ? '★' : '☆'}</button>
+                      {coinIcon(e.coin)}
+                      <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-bold hover:underline">{e.coin.name}</Link>
+                    </span>
+                    <span>
+                      <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: `color-mix(in srgb, ${tone} 18%, transparent)`, color: tone }}>
+                        {e.pat.sentiment === 'Bullish' ? '▲ Bullish' : e.pat.sentiment === 'Bearish' ? '▼ Bearish' : '● Neutro'}
+                      </span>
+                    </span>
+                    <span className="text-xs font-semibold" style={{ color: stTone }}>{e.pat.stage}</span>
+                    <span className="truncate font-semibold" title={e.pat.detail}>{e.pat.pattern}</span>
+                    <span className="flex items-center justify-end gap-2 text-muted">
+                      <Link to={`/monitor?symbol=${e.coin.symbol}`} title={e.pat.detail} className="hover:text-white"><BarChart3 size={15} /></Link>
+                    </span>
+                  </div>
+                );
+              })
+            )}
+            {patFeed.length > 200 && (
+              <div className="py-1 text-center text-xs text-muted">Mostrando 200 de {patFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
+            )}
+          </div>
         ) : (
           <>
-            <div className="grid items-center gap-1 px-2 text-xs text-muted" style={{ gridTemplateColumns: gridCols }}>
-              {cols[tab].map((c, i) => <span key={i}>{c.h}</span>)}
+            <div className={tab === 'TREND' ? 'grid items-center gap-0 rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs text-muted' : 'grid items-center gap-1 px-2 text-xs text-muted'} style={{ gridTemplateColumns: gridCols }}>
+              {cols[tab].map((c, i) => <span key={i} className={tab === 'TREND' ? 'px-1' : undefined}>{c.h}</span>)}
             </div>
             <div
               ref={scrollRef}
-              className="max-h-[62vh] overflow-auto"
+              className={`${tab === 'TREND' && trendExpanded ? 'max-h-[85vh]' : 'max-h-[62vh]'} overflow-auto`}
               onScroll={(e) => {
                 const el = e.currentTarget;
                 if (el.scrollHeight - el.scrollTop - el.clientHeight < 800) {
@@ -1407,7 +1717,7 @@ export function Radar() {
                       conditions[i] = { ...conditions[i], tf: e.target.value as MonTf };
                       return { ...d, conditions };
                     })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
-                      {MON_TFS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
+                      {(c.indicator === 'trend' ? MON_TFS.filter((o) => o.k !== '1w') : MON_TFS).map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                     <select value={c.field} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
@@ -1416,6 +1726,12 @@ export function Radar() {
                     })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
                       {MON_FIELDS[c.indicator].map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
+                    {c.indicator === 'trend' && (
+                      <div className="-mt-1 text-[11px] text-muted">Tendência só vale em 1h/4h/1d (semanal não tem consenso).</div>
+                    )}
+                    {MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint && (
+                      <div className="-mt-1 text-[11px] text-muted">{MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint}</div>
+                    )}
                     <select value={c.op} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       conditions[i] = { ...conditions[i], op: e.target.value as MonOp };
@@ -1487,6 +1803,53 @@ export function Radar() {
                 Salvar filtro
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {patListOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPatListOpen(false)}>
+          <div className="max-h-[80vh] w-full max-w-sm overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <PanelTitle>Filtros de padrões</PanelTitle>
+              <button onClick={() => setPatListOpen(false)} className="text-xl leading-none text-muted" title="Fechar">×</button>
+            </div>
+            <div className="mt-1 text-xs text-muted">Sentimento</div>
+            <div className="mt-1 inline-flex items-center overflow-hidden rounded-md border border-[var(--border)]">
+              {(['Todas', 'Bullish', 'Neutro', 'Bearish'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setPatSentiment(s)}
+                  className={patSentiment === s ? 'bg-[var(--accent)] px-2.5 py-1.5 text-xs font-bold text-black' : 'px-2.5 py-1.5 text-xs font-semibold text-muted hover:text-white'}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 text-xs text-muted">Padrões (vazio = todos)</div>
+            <div className="mt-1 space-y-1.5">
+              {[...new Set([...patMap.values()].flat().map((p) => p.pattern))].sort().map((name) => {
+                const on = patPatterns.includes(name);
+                const count = [...patMap.values()].flat().filter((p) => p.pattern === name).length;
+                return (
+                  <label key={name} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => setPatPatterns((prev) => (on ? prev.filter((x) => x !== name) : [...prev, name]))}
+                    />
+                    <span className="flex-1 font-semibold">{name}</span>
+                    <span className="text-xs text-muted tabular">{count}</span>
+                  </label>
+                );
+              })}
+              {patMap.size === 0 && <div className="text-xs text-muted">Abra a aba para carregar os padrões do top-100.</div>}
+            </div>
+            <button
+              onClick={() => { setPatPatterns([]); setPatSentiment('Todas'); }}
+              className="mt-3 w-full rounded-lg border border-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent)]"
+            >
+              Limpar
+            </button>
           </div>
         </div>
       )}
