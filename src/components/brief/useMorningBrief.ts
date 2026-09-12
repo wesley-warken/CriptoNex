@@ -135,7 +135,7 @@ export function useMorningBrief(
     setBriefBusy(true);
     void (async () => {
       const template = buildBriefTemplate(input);
-      const r = await generateBrief(buildMorningBriefPrompt(input), template);
+      const r = await generateBrief(buildMorningBriefPrompt(input), template, input);
       setBriefText(r.text ?? template);
       setBriefTier(r.tier === 'flash' ? 'flash' : 'template');
       setBriefBadge(r.badge);

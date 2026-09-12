@@ -307,20 +307,6 @@ export interface CascadeOut {
 }
 
 /**
- * Cadeia do BRIEF: Flash (reserva garantida) → template determinístico.
- * Marca o brief como rodado quando produz conteúdo (libera a reserva).
- */
-export async function generateBrief(userPrompt: string, template: string): Promise<CascadeOut> {
-  const r = await askTier(userPrompt, 'flash');
-  if (r.ok) {
-    await markBriefDone();
-    return { text: r.text, tier: 'flash', badge: null, error: null };
-  }
-  await markBriefDone();
-  return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: r.error };
-}
-
-/**
  * Cadeia do EXPLAIN: Flash (com reserva do brief) → Lite degradado (badge)
  * → indisponível (UI mostra instrução honesta).
  */
@@ -405,7 +391,14 @@ export function buildMorningBriefPrompt(i: MorningBriefInput): string {
     `CRIPTO: BTC ${bNum(i.btc.price)} (${bSigned(i.btc.chg24)}% 24h) · ETH ${bNum(i.eth.price)} (${bSigned(i.eth.chg24)}% 24h) · 48h: S&P ${bSigned(i.btcCorr48.spx48)}% vs BTC ${bSigned(i.btcCorr48.btc48)}% → ${i.btcCorr48.mode ?? 'N/A'}.`,
     `REGIME: ${i.regime} · amplitude ${i.breadth ?? 'N/A'}. SETORES: ${sectors}. NOTÍCIAS 12h: ${news}. ELITES 1–3m: ${elites}. DIVERGÊNCIAS: ${i.flags.join(' | ') || 'nenhuma'}.`,
     'Escreva o Morning Brief em português do Brasil, 150 a 250 palavras, Markdown com as seções nesta ordem: 🎯 frase de abertura (1 linha: regime + S&P% + setor líder), 📊 macro em 3 bullets (causa do sentimento, eventos 24h, fora-do-padrão), 🎨 correlação crypto (segue ou desacoplado + implicação), 🎯 ação concreta (máx 2 bullets: priorizar e evitar), ⚠️ alertas de risco (SÓ se houver divergência; sem divergência escreva "Sem alertas além do monitoramento padrão").',
-    'Tom direto e técnico, sem hype: nunca use incrível, espetacular, extraordinário, imperdível, disparada, garantido. Use dados, não opiniões. Nunca recomende comprar, vender ou manter.',
+  'Tom direto e técnico, sem hype: nunca usar incrível, espetacular, extraordinário, imperdível, disparada, garantido. Use dados, não opiniões. Nunca recomendar comprar, vender ou manter.',
+    'Responda com AS e SÓ AS 5 seções abaixo, uma por parágrafo (cada bloco inicia com a âncora exata):',
+    '🎯 <frase de abertura 1 linha>',
+    '📊 <macro 3 bullets: causa | eventos 24h | alerta>',
+    '🎨 <correlação 48h + implicação>',
+    '🎯 <priorizar> <evitar>',
+    '⚠️ <alerta ou Sem alertas além do monitoramento padrão>',
+    'NUNCA resuma tudo em 1 linha; NUNCA omita uma seção.',
   ].join('\n');
 }
 
@@ -438,4 +431,58 @@ export function buildBriefTemplate(i: MorningBriefInput): string {
     `🎯 ${action} ${avoid} Amplitude em ${i.breadth ?? 'N/A'}: ${i.breadth != null && i.breadth >= 50 ? 'fundo amplo sustenta tentativa de tendência' : 'fundo estreito pede tamanho menor'}.`,
     `⚠️ ${risk}`,
   ].join('\n');
+}
+
+/**
+ * Validador determinístico do brief: pega a 1-linha da imagem e similares.
+ * Aprova só texto que traz as 5 âncoras + 3 números-chave reais do input
+ * + 100–300 palavras. Garante resposta ruim → template, não badge vazio.
+ */
+export interface BriefValidity {
+  ok: boolean;
+  reason: string | null;
+  words: number;
+}
+
+const requiredNumbers = (i: MorningBriefInput): string[] => [
+  bSigned(i.spx.chg),
+  bNum(i.vix.level),
+  bNum(i.btc.price),
+];
+
+export function briefOutputValid(text: string | null, i: MorningBriefInput): BriefValidity {
+  if (!text || !text.trim()) return { ok: false, reason: 'texto vazio', words: 0 };
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words < 100) return { ok: false, reason: 'texto curto demais (colapso em 1 linha?)', words };
+  if (words > 300) return { ok: false, reason: 'texto muito longo', words };
+  const missing = ['🎯', '📊', '🎨', '⚠️'].filter((a) => !text.includes(a));
+  if (missing.length) return { ok: false, reason: `${missing.length} âncora(s) de seção ausente`, words };
+  const nums = requiredNumbers(i).filter((n) => n && n !== 'N/A' && n !== 'null' && !text.includes(n));
+  if (nums.length) return { ok: false, reason: `número-chave ausente (${nums.join(', ')})`, words };
+  for (const h of BANNED_HYPE) if (text.toLowerCase().includes(h)) return { ok: false, reason: `hype proibido: ${h}`, words };
+  return { ok: true, reason: null, words };
+}
+
+/**
+ * Geração do brief com retry de reparo: se a resposta violar regras
+ * (1-linha colapsada, âncora faltando, número sumiu), reenvia corrigindo —
+ * 1x. Se falhar de novo, cai pro template (nunca gruda resposta ruim como IA).
+ * Reserva do brief: canExplainFlash libera 1 slot garantido pro Flash.
+ */
+export async function generateBrief(userPrompt: string, template: string, input: MorningBriefInput): Promise<CascadeOut> {
+  const first = await askGemini(userPrompt, 'flash');
+  if (first.ok) {
+    const v = briefOutputValid(first.text, input);
+    if (v.ok) { await markBriefDone(); return { text: first.text, tier: 'flash', badge: null, error: null }; }
+    if (!first.cached) {
+      const repair = await askGemini(
+        `${userPrompt}\n\nREPARO: sua resposta anterior tinha ${v.words} palavras e falhou por: ${v.reason}. Reescreva com AS e SÓ AS 5 seções (🎯📊🎨⚠️), uma por parágrafo, usando os números do prompt.`,
+        'flash',
+      );
+      const v2 = repair.ok ? briefOutputValid(repair.text, input) : { ok: false, reason: 'reparo falhou', words: 0 };
+      if (repair.ok && v2.ok) { await markBriefDone(); return { text: repair.text, tier: 'flash', badge: null, error: null }; }
+    }
+  }
+  await markBriefDone();
+  return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: first.ok ? null : first.error };
 }
