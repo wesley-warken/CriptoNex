@@ -10,6 +10,8 @@ import { yahooChart } from '@/services/lookup';
 import { Skeleton, ErrorBox } from '@/components/ui/kit';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
+import { MorningBriefCard } from '@/components/brief/MorningBriefCard';
+import { useMorningBrief } from '@/components/brief/useMorningBrief';
 import { MStats } from '@/components/minimal/MStats';
 import { MSection } from '@/components/minimal/MSection';
 import { MEmpty } from '@/components/minimal/MEmpty';
@@ -28,6 +30,7 @@ export function Dashboard() {
   const [hist, setHist] = useState<{ btc: number[]; eth: number[] }>({ btc: [], eth: [] });
   const [fg, setFg] = useState<number | null>(null);
   const [gold, setGold] = useState<{ price: number | null; spark: number[] }>({ price: null, spark: [] });
+  const brief = useMorningBrief(m.data, a.regime.label, a.regime.breadth, hist.btc);
 
   useEffect(() => {
     let alive = true;
@@ -128,6 +131,9 @@ export function Dashboard() {
           </button>
         </div>
       </div>
+
+      {/* Morning Brief · abertura US (10:30 BRT) */}
+      <MorningBriefCard brief={brief} />
 
       {/* KPI Strip Principal */}
       <MStats

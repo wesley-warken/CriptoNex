@@ -50,6 +50,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/rss-bm/, ''),
       },
+      '/api/rss-yf': {
+        target: 'https://finance.yahoo.com',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/rss-yf/, ''),
+      },
       '/api/reddit': {
         target: 'https://www.reddit.com',
         changeOrigin: true,

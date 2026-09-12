@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from '@/services/cache';
+import { generateTranslate } from '@/services/aiAnalysis';
 
 /** Léxico bilíngue simples para estimativa de sentimento (heurística local). */
 const POS = [
@@ -29,15 +30,32 @@ export function sentimentScore(text: string): { score: number; label: 'negativo'
 
 const transCache = new Map<string, string>();
 
-/** Tradução EN→PT sob demanda via MyMemory (gratuita, com cache local). */
+/**
+ * Tradução EN→PT sob demanda — cadeia do TRANSLATE: Flash-Lite (cota
+ * auxiliar) → MyMemory (gratuita) → original. Nunca trava, nunca toca o
+ * Flash principal; chamador mostra o original com badge quando for o caso.
+ */
 export async function translateToPt(text: string): Promise<string> {
   const key = text.slice(0, 400);
   const hit = transCache.get(key);
   if (hit) return hit;
-  const r = await fetchWithTimeout(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(key)}&langpair=en|pt`, 15000);
-  if (!r.ok) throw new Error(`Tradução ${r.status}`);
-  const j = (await r.json()) as { responseData?: { translatedText?: string } };
-  const out = j.responseData?.translatedText ?? text;
-  transCache.set(key, out);
-  return out;
+  try {
+    const lite = await generateTranslate(key);
+    if (lite.tier === 'lite' && lite.text.trim()) {
+      transCache.set(key, lite.text);
+      return lite.text;
+    }
+  } catch {
+    /* sem Lite: MyMemory */
+  }
+  try {
+    const r = await fetchWithTimeout(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(key)}&langpair=en|pt`, 15000);
+    if (!r.ok) throw new Error(`Tradução ${r.status}`);
+    const j = (await r.json()) as { responseData?: { translatedText?: string } };
+    const out = j.responseData?.translatedText ?? text;
+    transCache.set(key, out);
+    return out;
+  } catch {
+    throw new Error('Tradução indisponível');
+  }
 }

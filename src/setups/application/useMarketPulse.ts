@@ -16,6 +16,7 @@ export interface AiState {
   busy: boolean;
   text: string | null;
   error: string | null;
+  badge?: string | null;
 }
 
 export interface MarketPulseApi {
@@ -77,7 +78,15 @@ export function useMarketPulse(market: MarketApi, analysis: AnalysisApi): Market
   }, [runId]);
 
   useEffect(() => {
-    void aiAdapter.quota().then((q) => setQuota(q.left == null ? `—/${q.cap}` : `${q.left}/${q.cap}`)).catch(() => undefined);
+    void (async () => {
+      try {
+        const [q, ql] = await Promise.all([aiAdapter.quota(), aiAdapter.quotaLite()]);
+        const f = (v: { left: number | null; cap: number }) => (v.left == null ? `—/${v.cap}` : `${v.left}/${v.cap}`);
+        setQuota(`${f(q)} · lite ${f(ql)}`);
+      } catch {
+        /* sem cota */
+      }
+    })();
   }, []);
 
   const btc = useMemo(() => btcReturns(market.candles), [market.candles]);
@@ -106,9 +115,13 @@ export function useMarketPulse(market: MarketApi, analysis: AnalysisApi): Market
         }),
       );
       const q = await aiAdapter.quota().catch(() => null);
-      if (q) setQuota(q.left == null ? `—/${q.cap}` : `${q.left}/${q.cap}`);
-      if (!r.ok) setAi({ busy: false, text: null, error: r.text });
-      else setAi({ busy: false, text: r.text, error: null });
+      if (q) {
+        const ql = await aiAdapter.quotaLite().catch(() => null);
+        const f = (v: { left: number | null; cap: number }) => (v.left == null ? `—/${v.cap}` : `${v.left}/${v.cap}`);
+        setQuota(ql ? `${f(q)} · lite ${f(ql)}` : f(q));
+      }
+      if (!r.ok) setAi({ busy: false, text: null, error: r.text, badge: null });
+      else setAi({ busy: false, text: r.text, error: null, badge: r.badge ?? null });
     })();
   }, [btc, analysis.regime.breadth, analysis.regime.label, mctx]);
 

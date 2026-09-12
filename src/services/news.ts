@@ -18,6 +18,62 @@ const FEEDS = [
   { source: 'Bitcoin Magazine', url: '/api/rss-bm/feed' },
 ];
 
+/** Fonte macro p/ o Morning Brief (12h). Fallback: keywords no feed cripto. */
+const MACRO_FEEDS = [
+  { source: 'Yahoo Finance', url: '/api/rss-yf/news/rssindex', direct: 'https://finance.yahoo.com/news/rssindex' },
+];
+
+const MACRO_KEYWORDS = [
+  'cpi', 'fomc', 'payroll', 'nfp', 'pmi', 'gdp', 'unemployment', 'jobless',
+  'rate cut', 'rate hike', 'interest rate', 'earnings', 'guidance',
+  'fed', 'powell', 'treasury', 'yields', 'recession', 'inflation',
+];
+
+/** Notícias publicadas nas últimas `hours` horas (ordem preservada). */
+export function withinHours(items: NewsItem[], hours: number, now = Date.now()): NewsItem[] {
+  const ms = hours * 3600_000;
+  return items.filter((n) => n.publishedAt != null && n.publishedAt <= now && now - n.publishedAt <= ms);
+}
+
+/** Filtro macro por keywords (título+resumo) — fallback sem fonte macro. */
+export function macroByKeywords(items: NewsItem[]): NewsItem[] {
+  return items.filter((n) => {
+    const t = `${n.title} ${n.summary}`.toLowerCase();
+    return MACRO_KEYWORDS.some((k) => t.includes(k));
+  });
+}
+
+/**
+ * 2–3 manchetes macro das últimas 12h: RSS macro → fallback keywords no
+ * feed cripto. Nunca throw: sem nada, lista vazia honesta.
+ */
+export async function fetchMacroNews(count = 3, hours = 12): Promise<{ items: NewsItem[]; errors: string[]; fallback: boolean }> {
+  const inDev = typeof window !== 'undefined' && window.location.port === '5173';
+  const errors: string[] = [];
+  const found: NewsItem[] = [];
+  await Promise.all(
+    MACRO_FEEDS.map(async (f) => {
+      try {
+        const url = inDev ? f.url : f.direct;
+        const r = await fetchWithTimeout(url, 15000);
+        if (!r.ok) throw new Error(`${f.source} ${r.status}`);
+        found.push(...parseRss(await r.text(), f.source));
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : String(e));
+      }
+    }),
+  );
+  const fresh = withinHours(found, hours).slice(0, count);
+  if (fresh.length) return { items: fresh, errors, fallback: false };
+  try {
+    const { items } = await fetchNews();
+    return { items: macroByKeywords(withinHours(items, hours)).slice(0, count), errors, fallback: true };
+  } catch (e) {
+    errors.push(e instanceof Error ? e.message : String(e));
+    return { items: [], errors, fallback: true };
+  }
+}
+
 const COIN_KEYWORDS: Record<string, string[]> = {
   BTC: ['bitcoin', 'btc'],
   ETH: ['ethereum', 'eth', 'ether'],

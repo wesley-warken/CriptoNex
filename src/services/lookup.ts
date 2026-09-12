@@ -44,6 +44,12 @@ export interface YahooQuote {
   changePct: number | null;
   candles: Candle[];
   currency: string;
+  /** Abertura da sessão coberta (1º candle) — base do gap de abertura. */
+  openToday: number | null;
+  /** Fechamento anterior (meta do Yahoo) — referência do gap. */
+  prevClose: number | null;
+  /** Timestamp do último candle (ms) — checagem de frescor. */
+  lastTime: number | null;
 }
 
 /** Somente /v8/finance/chart (endpoint público estável), com fallback query1→query2. */
@@ -85,6 +91,9 @@ export async function yahooChart(symbol: string, range = '3mo', interval = '1d',
         changePct: last != null && prev ? ((last / prev - 1) * 100) : null,
         candles,
         currency: (res.meta as { currency?: string } | undefined)?.currency ?? (symbol.endsWith('.SA') ? 'BRL' : 'USD'),
+        openToday: candles.length ? candles[0].open : null,
+        prevClose: prev ?? null,
+        lastTime: candles.length ? candles[candles.length - 1].time : null,
       };
       await idbSet(`${IDB_KEYS.quotes}:yh:${symbol}:${range}`, out, ttlMs);
       return out;

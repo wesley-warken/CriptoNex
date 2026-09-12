@@ -35,6 +35,8 @@ export interface EvidencePort {
 export interface AiResult {
   ok: boolean;
   text: string | null;
+  /** Badge de degradação (ex.: versão Lite) — null quando tier principal. */
+  badge?: string | null;
 }
 
 export interface AiQuota {
@@ -45,6 +47,7 @@ export interface AiQuota {
 /** IA opcional, sempre sob clique: resumo do pulso + análise do setup. */
 export interface AiPort {
   quota(): Promise<AiQuota>;
+  quotaLite(): Promise<AiQuota>;
   summarizeContext(prompt: string): Promise<AiResult>;
   analyzeSetup(prompt: string): Promise<AiResult>;
 }

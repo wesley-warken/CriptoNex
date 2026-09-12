@@ -11,7 +11,9 @@ import type { HorizonFacts } from '@/engine/horizon/types';
 import type { Candle } from '@/types';
 
 export const HORIZON_TTL_MS = 60 * 60 * 1000;
-const HZ_KEY = (symbol: string) => `cc.horizon:v1:${symbol}`;
+/** Chave de cache IDB dos fatos stage-2 (reuso p/ leitura leve, ex.: brief). */
+export const horizonCacheKey = (symbol: string) => `cc.horizon:v1:${symbol}`;
+const HZ_KEY = horizonCacheKey;
 const CANDIDATE_CAP = 120;
 const CONCURRENCY = 2;
 const GAP_MS = 1200;

@@ -35,7 +35,9 @@ export function useSetupAi(): SetupAiApi {
       );
       setBySymbol((m) => ({
         ...m,
-        [o.symbol]: r.ok ? { busy: false, text: r.text, error: null } : { busy: false, text: null, error: r.text },
+        [o.symbol]: r.ok
+          ? { busy: false, text: r.text, error: null, badge: r.badge ?? null }
+          : { busy: false, text: null, error: r.text, badge: null },
       }));
     })();
   }, []);
