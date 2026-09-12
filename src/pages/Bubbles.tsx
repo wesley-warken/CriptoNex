@@ -8,7 +8,9 @@ import { useBrapiQuotes } from '@/services/stockQuotes';
 import { yahooChart } from '@/services/lookup';
 import { US_MEGACAPS } from '@/services/scanner';
 import type { BubbleCoin } from '@/services/bubbles';
-import { Panel, PanelTitle, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MEmpty } from '@/components/minimal/MEmpty';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { fmtPct, fmtNum } from '@/lib/format';
 import { companyLogo, avatarLetters } from '@/lib/logos';
@@ -47,7 +49,7 @@ function BubbleAvatar({ image, label, size }: { image?: string | null; label: st
   if (image && !failed && size > 18) {
     return (
       <img
-        src={image} alt="" loading="lazy" className="rounded-full bg-black/40"
+        src={image} alt="" loading="lazy" className="rounded-full bg-[var(--surface-2)]"
         style={{ width: size * 0.52, height: size * 0.52 }}
         onError={() => setFailed(true)}
       />
@@ -55,8 +57,8 @@ function BubbleAvatar({ image, label, size }: { image?: string | null; label: st
   }
   return (
     <span
-      className="flex items-center justify-center rounded-full font-bold"
-      style={{ width: size * 0.52, height: size * 0.52, fontSize: size * 0.24, background: 'rgba(255,255,255,0.12)', color: '#fff' }}
+      className="flex items-center justify-center rounded-full bg-[var(--surface-2)] font-bold text-[var(--text-primary)]"
+      style={{ width: size * 0.52, height: size * 0.52, fontSize: size * 0.24 }}
     >
       {avatarLetters(label)}
     </span>
@@ -255,19 +257,14 @@ export function Bubbles() {
   }, [bubbles]);
 
   const maxSize = Math.max(...bubbles.map((b) => b.size), 1);
-  const baseColor = (b: Bubble) => ((b.change ?? 0) >= 0 ? '52,211,153' : '251,113,133');
+  const baseColor = (b: Bubble) => ((b.change ?? 0) >= 0 ? '16,185,129' : '239,68,68');
   const colorOf = (b: Bubble) => {
     if (colorMode === 'SIZE') {
       const t = Math.log10(b.size + 1) / Math.log10(maxSize + 1);
-      return `rgba(34,211,238,${0.25 + t * 0.6})`;
+      return `rgba(100,116,139,${0.35 + t * 0.5})`;
     }
     const v = b.change ?? 0;
-    return `rgba(${baseColor(b)},${0.3 + Math.min(0.55, Math.abs(v) / 14)})`;
-  };
-  const glowOf = (b: Bubble) => {
-    if (colorMode === 'SIZE') return '0 0 22px rgba(34,211,238,0.35)';
-    const v = Math.min(0.65, Math.abs(b.change ?? 0) / 12);
-    return `0 0 ${18 + v * 30}px rgba(${baseColor(b)},${0.35 + v * 0.5})`;
+    return `rgba(${baseColor(b)},${0.6 + Math.min(0.35, Math.abs(v) / 12)})`;
   };
 
   const loading = seg === 'CRYPTO' ? feed.loading && !feed.coins.length : stocks.loading && !stocks.rows.length;
@@ -275,7 +272,7 @@ export function Bubbles() {
   if (loading) return <Skeleton className="h-96" />;
   if (err) return <ErrorBox message={err} onRetry={() => (seg === 'CRYPTO' ? feed.reload() : window.location.reload())} />;
   const feedBadge = seg === 'CRYPTO' && feed.coins.length > 0 && (
-    <span className="text-xs normal-case text-muted">
+    <span className="text-xs normal-case tabular-nums text-[var(--text-muted)]">
       fonte: {feed.source === 'gecko' ? 'CoinGecko' : feed.source === 'paprika' ? 'CoinPaprika' : 'CoinLore'}
       {feed.stale ? ' · cache' : ''} · {feed.coins.length.toLocaleString('pt-BR')} moedas
     </span>
@@ -286,66 +283,66 @@ export function Bubbles() {
     : (sizeMode === 'PERF' ? `valorização ${tf}` : 'volume financeiro 24h');
   return (
     <Fullscreen title={`Bubbles — quanto maior, maior a valorização · cor = ${tf}`}>
-      <div className="mb-2 flex flex-wrap items-center gap-1 text-xs">
+      <div className="mb-2 flex flex-wrap items-center gap-1 border-b border-[var(--border)] pb-2 text-xs">
         {(['CRYPTO', 'EUA', 'BRASIL'] as Seg[]).map((s) => (
-          <button key={s} onClick={() => setSeg(s)} className={s === seg ? 'rounded bg-[var(--accent)] px-3 py-1 font-bold text-black' : 'rounded border border-[var(--border)] px-3 py-1 text-muted'}>
+          <button key={s} onClick={() => setSeg(s)} className={s === seg ? 'px-3 py-1 font-semibold text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-3 py-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>
             {s === 'CRYPTO' ? 'Crypto' : s === 'EUA' ? 'EUA' : 'Brasil'}
           </button>
         ))}
-        <select value={rank} onChange={(e) => setRank(e.target.value)} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1">
+        <select value={rank} onChange={(e) => setRank(e.target.value)} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-xs text-[var(--text-primary)] outline-none">
           <option value="0">Top 100</option>
           <option value="100">101–200</option>
           <option value="200">201–300</option>
         </select>
         {TFS.filter((t) => seg === 'CRYPTO' || t !== '1H').map((t) => (
-          <button key={t} onClick={() => setTf(t)} className={t === tf ? 'rounded bg-[var(--accent)] px-2 py-1 font-bold text-black' : 'rounded border border-[var(--border)] px-2 py-1 text-muted'}>{t === '1S' ? '1S' : t}</button>
+          <button key={t} onClick={() => setTf(t)} className={t === tf ? 'px-2 py-1 font-semibold text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-2 py-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>{t === '1S' ? '1S' : t}</button>
         ))}
-        <div className="flex overflow-hidden rounded border border-[var(--border)]">
+        <div className="flex overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-1)]">
           {(['VAR', 'SIZE'] as ColorMode[]).map((cm) => (
-            <button key={cm} onClick={() => setColorMode(cm)} className={cm === colorMode ? 'bg-[var(--accent)] px-2 py-1 font-bold text-black' : 'px-2 py-1 text-muted'}>
+            <button key={cm} onClick={() => setColorMode(cm)} className={cm === colorMode ? 'bg-[var(--surface-2)] px-2 py-1 font-semibold text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-2 py-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>
               {cm === 'VAR' ? 'Variação' : seg === 'CRYPTO' ? 'Market Cap' : 'Volume'}
             </button>
           ))}
         </div>
-        <div className="flex overflow-hidden rounded border border-[var(--border)]" title="Tamanho da bolha">
+        <div className="flex overflow-hidden rounded-md border border-[var(--border)] bg-[var(--surface-1)]" title="Tamanho da bolha">
           {(['MCAP', 'PERF'] as SizeMode[]).map((sm) => (
-            <button key={sm} onClick={() => setSizeMode(sm)} className={sm === sizeMode ? 'bg-[var(--accent)] px-2 py-1 font-bold text-black' : 'px-2 py-1 text-muted'}>
-              {sm === 'PERF' ? '📈 Valorização' : '⚖️ Tamanho'}
+            <button key={sm} onClick={() => setSizeMode(sm)} className={sm === sizeMode ? 'bg-[var(--surface-2)] px-2 py-1 font-semibold text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-2 py-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>
+              {sm === 'PERF' ? 'Valorização' : 'Tamanho'}
             </button>
           ))}
         </div>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar ativo…" className="ml-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar ativo…" className="ml-auto rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-3 py-1 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]" />
         {feedBadge}
         {seg !== 'CRYPTO' && stocks.progress.total > 0 && stocks.rows.length < stocks.progress.total && (
-          <span className="text-xs text-muted">carregando {stocks.rows.length}/{stocks.progress.total}…</span>
+          <span className="text-xs tabular-nums text-[var(--text-muted)]">carregando {stocks.rows.length}/{stocks.progress.total}…</span>
         )}
       </div>
-      {!bubbles.length && <Empty title="Sem bolhas" hint="Aguarde carregar ou ajuste a busca." />}
-      <div className="relative w-full overflow-hidden rounded-lg" style={{ aspectRatio: '1000 / 620', background: '#04070c' }}>
+      {!bubbles.length && <MEmpty title="Sem bolhas" hint="Aguarde carregar ou ajuste a busca." />}
+      <div className="relative w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-2)] shadow-inner" style={{ aspectRatio: '1000 / 620' }}>
         {packed.map((l) => (
           <button
             key={l.data.key}
             title={`${l.data.label} · ${l.data.price != null ? fmtNum(l.data.price) : ''} · ${l.data.sub}`}
             onClick={() => nav(`/monitor?symbol=${encodeURIComponent(l.data.symbol)}`)}
-            className="absolute flex flex-col items-center justify-center overflow-hidden rounded-full transition hover:scale-105"
+            className="absolute flex flex-col items-center justify-center overflow-hidden rounded-full transition-colors duration-150 ease-out active:scale-[0.98]"
             style={{
               left: `${(l.x / 1000) * 100}%`, top: `${(l.y / 620) * 100}%`,
               width: `${(l.r * 2 / 1000) * 100}%`, height: `${(l.r * 2 / 620) * 100}%`,
-              background: `radial-gradient(circle at 50% 35%, ${colorOf(l.data)} 0%, rgba(4,7,12,0.55) 78%)`,
-              boxShadow: `${glowOf(l.data)}, inset 0 0 ${Math.max(6, l.r / 4)}px rgba(0,0,0,0.55)`,
+              background: colorOf(l.data),
               border: `1px solid rgba(${baseColor(l.data)},0.5)`,
-              color: '#fff', textShadow: '0 1px 6px rgba(0,0,0,0.9)',
+              color: 'white',
+              textShadow: '0 1px 2px rgba(0,0,0,0.5)',
             }}
           >
             {l.r > 14 ? (
               <BubbleAvatar image={l.data.image} label={l.data.label} size={l.r} />
             ) : null}
             <span className="font-bold leading-none" style={{ fontSize: Math.max(9, Math.min(30, l.r / 2.6)) }}>{l.data.label}</span>
-            {l.r > 15 && <span className="tabular font-bold leading-tight" style={{ fontSize: Math.max(8, Math.min(22, l.r / 3.1)) }}>{l.data.sub}</span>}
+            {l.r > 15 && <span className="font-bold tabular-nums leading-tight" style={{ fontSize: Math.max(8, Math.min(22, l.r / 3.1)) }}>{l.data.sub}</span>}
           </button>
         ))}
       </div>
-      <Panel><PanelTitle>Legenda</PanelTitle><div className="text-xs text-muted">Tamanho = {sizeLabel} · verde = alta no período, vermelho = queda · clique abre a análise no Monitor.</div></Panel>
+      <MSection title="Legenda"><p className="text-xs leading-6 text-[var(--text-secondary)]">Tamanho = {sizeLabel} · verde = alta no período, vermelho = queda · clique abre a análise no Monitor.</p></MSection>
     </Fullscreen>
   );
 }

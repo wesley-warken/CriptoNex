@@ -10,10 +10,16 @@ import { snapshot, calcSupertrend } from '@/engine/indicators';
 import { floorPivots, pivotZone, aggregateClosed } from '@/engine/pivots';
 import { buildSignals } from '@/engine/signals';
 import { scoreAsset, interpret } from '@/engine/scoring';
-import { backtest, signalForwardStats } from '@/engine/backtesting';
+import { backtest, signalForwardStats, formatPF } from '@/engine/backtesting';
 import { useCryptoMarket } from '@/services/market';
 import { useAnalysis } from '@/lib/useAnalysis';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MStats, MDot } from '@/components/minimal/MStats';
+import { MRow } from '@/components/minimal/MRow';
+import { MEmpty } from '@/components/minimal/MEmpty';
+import { Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { CandleChart, type PriceLine } from '@/components/charts/CandleChart';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
@@ -31,10 +37,14 @@ function TradePlan({ symbol, price, pivots, atr, signal, fmtPx }: {
 }) {
   if (signal === 'NEUTRAL' || price <= 0) {
     return (
-      <Panel>
-        <PanelTitle>Plano de trade</PanelTitle>
-        <div className="text-sm text-muted">Sinal neutro — sem viés direcional. Cenários: rompimento de {fmtPx(pivots.r1)} abre alvo em {fmtPx(pivots.r2)}; perda de {fmtPx(pivots.s1)} mira {fmtPx(pivots.s2)}. Aguarde confirmação.</div>
-      </Panel>
+      <MSection
+        title="Plano estrutural de trade"
+        right={<span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Sinal neutro</span>}
+      >
+        <p className="text-sm leading-6 text-[var(--text-secondary)]">
+          Sem viés direcional ativo. Cenários calculados: rompimento de <strong className="font-semibold tabular-nums text-[var(--text-primary)]">{fmtPx(pivots.r1)}</strong> abre alvo em <strong className="font-semibold tabular-nums text-[var(--text-primary)]">{fmtPx(pivots.r2)}</strong>; perda de <strong className="font-semibold tabular-nums text-[var(--text-primary)]">{fmtPx(pivots.s1)}</strong> mira <strong className="font-semibold tabular-nums text-[var(--text-primary)]">{fmtPx(pivots.s2)}</strong>.
+        </p>
+      </MSection>
     );
   }
   const long = signal === 'BUY';
@@ -45,18 +55,34 @@ function TradePlan({ symbol, price, pivots, atr, signal, fmtPx }: {
   const risk = Math.abs(entry - stop);
   const rr1 = risk > 0 ? Math.abs(t1 - entry) / risk : null;
   const rr2 = risk > 0 ? Math.abs(t2 - entry) / risk : null;
+  const stopDistPct = entry > 0 ? (Math.abs(entry - stop) / entry) * 100 : 0;
+
   return (
-    <Panel>
-      <PanelTitle>Plano de trade ({long ? 'compra' : 'venda'} — educacional)</PanelTitle>
-      <div className="grid grid-cols-2 gap-1 text-sm tabular md:grid-cols-5">
-        <div className="rounded bg-[var(--surface-2)] px-2 py-1"><div className="text-xs text-muted">Entrada ref.</div><strong>{fmtPx(entry)}</strong></div>
-        <div className="rounded bg-[var(--surface-2)] px-2 py-1"><div className="text-xs text-muted">Stop (≈1,5 ATR)</div><strong style={{ color: 'var(--down)' }}>{fmtPx(stop)}</strong></div>
-        <div className="rounded bg-[var(--surface-2)] px-2 py-1"><div className="text-xs text-muted">Alvo 1</div><strong style={{ color: 'var(--up)' }}>{fmtPx(t1)}</strong><div className="text-xs text-muted">R:R {rr1 != null ? rr1.toFixed(2) : '—'}</div></div>
-        <div className="rounded bg-[var(--surface-2)] px-2 py-1"><div className="text-xs text-muted">Alvo 2</div><strong style={{ color: 'var(--up)' }}>{fmtPx(t2)}</strong><div className="text-xs text-muted">R:R {rr2 != null ? rr2.toFixed(2) : '—'}</div></div>
-        <div className="rounded bg-[var(--surface-2)] px-2 py-1"><div className="text-xs text-muted">Ativo</div><strong>{symbol}</strong></div>
-      </div>
-      <div className="mt-1 text-xs text-muted">Estrutura didática a partir de pivôs e ATR — valide no gráfico, use stop sempre e nunca opere só por este painel.</div>
-    </Panel>
+    <MSection
+      title="Plano de trade didático"
+      right={
+        <span className="flex items-baseline gap-2">
+          <span className={cn('text-xs font-semibold uppercase tracking-wider', long ? 'text-emerald-400' : 'text-red-400')}>
+            {long ? 'Viés compra' : 'Viés venda'}
+          </span>
+          <span className="text-xs tabular-nums text-zinc-500">Pivô + ATR (1.5×)</span>
+        </span>
+      }
+    >
+      <MStats
+        items={[
+          { label: 'Entrada ref.', value: fmtPx(entry), sub: symbol },
+          { label: 'Stop loss · 1.5 ATR', value: fmtPx(stop), sub: `-${stopDistPct.toFixed(2)}% de risco`, tone: 'down' },
+          { label: 'Alvo 1 · T1', value: fmtPx(t1), sub: rr1 != null ? `R:R ${rr1.toFixed(2)}:1` : '—', tone: rr1 != null && rr1 >= 2 ? 'up' : undefined },
+          { label: 'Alvo 2 · T2', value: fmtPx(t2), sub: rr2 != null ? `R:R ${rr2.toFixed(2)}:1` : '—', tone: rr2 != null && rr2 >= 2 ? 'up' : undefined },
+          { label: 'Risco nominal', value: fmtPx(risk), sub: 'por unidade' },
+        ]}
+      />
+
+      <p className="mt-3 text-xs leading-5 text-zinc-500">
+        Estrutura didática calculada sobre pivôs clássicos e volatilidade ATR — valide confluências técnicas e gerencie o risco rigorosamente.
+      </p>
+    </MSection>
   );
 }
 
@@ -73,13 +99,10 @@ function LiveBadge({ updatedAt, live }: { updatedAt: number | null; live: boolea
     new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(ts));
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--up)] px-2.5 py-1 text-[11px] font-bold text-[var(--up)]"
+      className="inline-flex items-center gap-1.5 text-[11px] tabular-nums text-zinc-500"
       title="Horário de Brasília (UTC-3)"
     >
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--up)] opacity-60" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--up)]" />
-      </span>
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
       {live ? 'TEMPO REAL' : 'AO VIVO'} · {fmt(Date.now())} BRT{updatedAt ? ` · dados ${fmt(updatedAt)}` : ''}
     </span>
   );
@@ -259,46 +282,102 @@ export function Monitor() {
   const longLabel = trendOf('1W') === 'BULLISH' ? 'Alta forte' : trendOf('1W') === 'BEARISH' ? 'Baixa' : trendOf('1W') ? 'Neutra' : '—';
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div ref={searchBox} className="relative">
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }}
-            onFocus={() => setSearchOpen(true)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && search.trim()) { setParams({ symbol: search.trim().toUpperCase() }); setSearchOpen(false); setSearch(''); } }}
-            placeholder={`${symbol} — pesquisar qualquer ativo…`}
-            className="w-64 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-bold outline-none"
-          />
-          {searchOpen && (
-            <div className="absolute z-50 mt-1 max-h-72 w-72 overflow-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-xl">
-              <div className="flex flex-wrap gap-1 px-2 pt-2">
-                {QUICK.map((q) => <button key={q} onClick={() => { setParams({ symbol: q }); setSearchOpen(false); setSearch(''); }} className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs">{q}</button>)}
+      {/* Topbar do Monitor */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div ref={searchBox} className="relative">
+            <div className="relative flex items-center">
+              <Search size={14} className="pointer-events-none absolute left-2.5 text-[var(--text-muted)]" aria-hidden="true" />
+              <input
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setSearchOpen(true); }}
+                onFocus={() => setSearchOpen(true)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && search.trim()) { setParams({ symbol: search.trim().toUpperCase() }); setSearchOpen(false); setSearch(''); } }}
+                placeholder={`${symbol} — pesquisar ativo…`}
+                className="w-64 border border-[var(--border)] bg-[var(--surface-1)] pl-8 pr-3 py-1.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]"
+              />
+            </div>
+            {searchOpen && (
+              <div className="absolute z-50 mt-1 max-h-72 w-72 overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-1.5 shadow-xl">
+                <div className="px-2 py-1 text-xs uppercase tracking-wider text-[var(--text-muted)]">Atalhos rápidos</div>
+                <div className="flex flex-wrap gap-1 px-1 pb-1.5">
+                  {QUICK.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => { setParams({ symbol: q }); setSearchOpen(false); setSearch(''); }}
+                      className="px-2 py-0.5 text-[11px] tabular-nums text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] active:scale-[0.98]"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+                {lookup.loading && <div className="px-3 py-2 text-xs text-[var(--text-muted)]">Buscando na rede…</div>}
+                {lookup.results.map((r) => (
+                  <button
+                    key={r.symbol}
+                    onClick={() => { setParams({ symbol: r.symbol }); setSearchOpen(false); setSearch(''); }}
+                    className="flex w-full items-center justify-between px-2.5 py-1.5 text-left text-xs transition-colors duration-150 ease-out hover:bg-[var(--surface-2)] active:scale-[0.98]"
+                  >
+                    <span className="font-semibold tabular-nums text-[var(--text-primary)]">{r.symbol}</span>
+                    <span className="truncate text-[11px] text-[var(--text-muted)] max-w-[140px]">{r.name} · {r.kind}</span>
+                  </button>
+                ))}
+                {search.trim().length >= 2 && !lookup.loading && lookup.results.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-[var(--text-muted)]">Nada encontrado — tente o ticker exato.</div>
+                )}
               </div>
-              {lookup.loading && <div className="px-3 py-2 text-xs text-muted">Buscando…</div>}
-              {lookup.results.map((r) => (
-                <button key={r.symbol} onClick={() => { setParams({ symbol: r.symbol }); setSearchOpen(false); setSearch(''); }} className="block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-[var(--surface-2)]">
-                  <strong>{r.symbol}</strong> <span className="text-xs text-muted">{r.name} · {r.kind}</span>
-                </button>
-              ))}
-              {search.trim().length >= 2 && !lookup.loading && lookup.results.length === 0 && <div className="px-3 py-2 text-xs text-muted">Nada encontrado — tente o símbolo exato.</div>}
+            )}
+          </div>
+
+          <span className="text-[11px] uppercase tracking-wider tabular-nums text-[var(--text-muted)]">
+            {kind === 'crypto' ? 'crypto' : `ação · ${resolved?.yahooSymbol ?? symbol}`}
+          </span>
+
+          {/* Timeframe Selector */}
+          <div className="inline-flex items-center gap-3">
+            {tfs.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTf(t)}
+                className={cn(
+                  'text-xs tabular-nums transition-colors duration-150 ease-out active:scale-[0.98]',
+                  t === tf
+                    ? 'font-semibold text-[var(--brand)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end">
+            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Cotação atual</span>
+            <span className="text-xl font-semibold tabular-nums tracking-tight text-[var(--text-primary)]">
+              {fmtPx(lastClose)}
+            </span>
+          </div>
+
+          {score && (
+            <div className="flex items-center gap-2 pl-3 border-l border-[var(--border)]">
+              <ScoreAudit score={score} />
+              <MDot tone={score.signal === 'BUY' ? 'up' : score.signal === 'SELL' ? 'down' : 'flat'}>
+                {`${score.signal} · ${score.confidence}%`}
+              </MDot>
             </div>
           )}
         </div>
-        <Badge tone={kind === 'crypto' ? 'accent' : undefined}>{kind === 'crypto' ? 'crypto' : `ação · ${resolved?.yahooSymbol ?? symbol}`}</Badge>
-        <div className="flex overflow-hidden rounded-lg border border-[var(--border)] text-sm">
-          {tfs.map((t) => <button key={t} onClick={() => setTf(t)} className={t === tf ? 'bg-[var(--accent)] px-3 py-1.5 font-bold text-black' : 'px-3 py-1.5 text-muted'}>{t}</button>)}
-        </div>
-        <span className="tabular text-lg font-bold">{fmtPx(lastClose)}</span>
-        {score && <><ScoreAudit score={score} /><Badge tone={score.signal === 'BUY' ? 'up' : score.signal === 'SELL' ? 'down' : 'warn'}>{score.signal} · {score.confidence}%</Badge></>}
       </div>
       {loading && <Skeleton className="h-96" />}
       {error && <ErrorBox message={error} onRetry={() => setRetryKey((x) => x + 1)} />}
       {!loading && !error && (
         <>
           <Fullscreen title={`Candles ${symbol} · ${tf}`}>
-            <div className="mb-2 flex items-center gap-2 text-xs text-muted">
-              <label className="flex items-center gap-1"><input type="checkbox" checked={showSR} onChange={(e) => setShowSR(e.target.checked)} /> Suportes/resistências (pivô {pivotBase.label})</label>
-              <span className="tabular">
+            <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
+              <label className="flex cursor-pointer items-center gap-1.5"><input type="checkbox" checked={showSR} onChange={(e) => setShowSR(e.target.checked)} className="accent-cyan-300" /> Suportes/resistências (pivô {pivotBase.label})</label>
+              <span className="tabular-nums text-zinc-500">
                 {candles.length > 0 && (
                   <>
                     {candles.length} candles · via {dataSrc ?? '?'} · último{' '}
@@ -309,8 +388,8 @@ export function Monitor() {
               <span className="ml-auto flex items-center gap-2">
                 <LiveBadge updatedAt={updatedAt} live={wsLive} />
                 {mtf.length > 0 && (
-                  <span>
-                    Curto <strong>{shortLabel}</strong> · Médio <strong>{midLabel}</strong> · Longo <strong>{longLabel}</strong>
+                  <span className="tabular-nums">
+                    Curto <span className="font-semibold text-[var(--text-primary)]">{shortLabel}</span> · Médio <span className="font-semibold text-[var(--text-primary)]">{midLabel}</span> · Longo <span className="font-semibold text-[var(--text-primary)]">{longLabel}</span>
                   </span>
                 )}
               </span>
@@ -318,79 +397,185 @@ export function Monitor() {
             <CandleChart key={`${symbol}-${tf}`} candles={candles} lines={srLines} dailyOrAbove={tf === '1d' || tf === '1w'} />
           </Fullscreen>
           {mtf.length > 0 && (
-            <Panel>
-              <PanelTitle>Tendências por timeframe</PanelTitle>
-              <div className="flex flex-wrap gap-2">
-                {mtf.map((t) => (
-                  <Badge key={t.tf} tone={t.trend === 'BULLISH' ? 'up' : t.trend === 'BEARISH' ? 'down' : 'warn'}>{t.tf} · {t.trend === 'BULLISH' ? 'Alta' : t.trend === 'BEARISH' ? 'Baixa' : 'Neutra'}</Badge>
-                ))}
-              </div>
-            </Panel>
+            <MSection title="Tendências por timeframe">
+              <MStats
+                items={mtf.map((t) => ({
+                  label: t.tf,
+                  value: t.trend === 'BULLISH' ? 'Alta' : t.trend === 'BEARISH' ? 'Baixa' : 'Neutra',
+                  tone: t.trend === 'BULLISH' ? 'up' : t.trend === 'BEARISH' ? 'down' : undefined,
+                  numeric: false,
+                }))}
+              />
+            </MSection>
           )}
           {pivots && (
-            <Panel>
-              <PanelTitle>Suportes e resistências (pivô clássico {pivotBase.label})</PanelTitle>
-              <div className="grid grid-cols-2 gap-1 text-sm tabular md:grid-cols-4">
-                {[['R3', pivots.r3, 'var(--down)'], ['R2', pivots.r2, 'var(--down)'], ['R1', pivots.r1, 'var(--warn)'], ['P', pivots.p, 'var(--muted)'], ['S1', pivots.s1, 'var(--warn)'], ['S2', pivots.s2, 'var(--up)'], ['S3', pivots.s3, 'var(--up)']].map(([k, v, c]) => (
-                  <div key={k as string} className="flex justify-between rounded bg-[var(--surface-2)] px-2 py-1"><span className="text-muted">{k}</span><strong style={{ color: c as string }}>{fmtPx(v as number)}</strong></div>
-                ))}
+            <MSection
+              title={`Suportes e resistências · pivô clássico ${pivotBase.label}`}
+              right={
+                <span className="text-xs tabular-nums text-[var(--text-muted)]">
+                  Zona: <span className="font-semibold text-[var(--text-primary)]">{pivotZone(lastPx, pivots)}</span>
+                </span>
+              }
+            >
+              <MStats
+                items={[
+                  { label: 'R3 · Resistência 3', value: fmtPx(pivots.r3), tone: 'down' },
+                  { label: 'R2 · Resistência 2', value: fmtPx(pivots.r2), tone: 'down' },
+                  { label: 'R1 · Resistência 1', value: fmtPx(pivots.r1) },
+                  { label: 'P · Pivô central', value: fmtPx(pivots.p) },
+                  { label: 'S1 · Suporte 1', value: fmtPx(pivots.s1) },
+                  { label: 'S2 · Suporte 2', value: fmtPx(pivots.s2), tone: 'up' },
+                  { label: 'S3 · Suporte 3', value: fmtPx(pivots.s3), tone: 'up' },
+                ]}
+              />
+              <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
+                <span className="tabular-nums">Base de cálculo: {pivotBase.stats?.sessions ?? 0} sessões diárias fechadas.</span>
+                <span>Níveis de referência não operacionais</span>
               </div>
-              <div className="mt-1 text-xs text-muted">Preço atual: {pivotZone(lastPx, pivots)}. Base: {pivotBase.stats?.sessions ?? 0} sessões diárias fechadas. Trate cada linha como zona e opere sempre com stop.</div>
-            </Panel>
+            </MSection>
           )}
+
           {pivots && snap?.atr && <TradePlan symbol={symbol} price={lastPx} pivots={pivots} atr={snap.atr} signal={score?.signal ?? 'NEUTRAL'} fmtPx={fmtPx} />}
-          <div className="flex flex-wrap gap-1">
+
+          {/* Indicator Navigation Bar */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-[var(--border)] py-2">
+            <span className="text-xs uppercase tracking-wider text-[var(--text-muted)] hidden sm:inline">Indicadores</span>
             {['Overview', 'Performance', 'Trend', 'RSI', 'MACD', 'Stochastic', 'Supertrend', 'Bollinger', 'Volume', 'SMA', 'EMA'].map((t) => (
-              <button key={t} onClick={() => setTab(t)} className={t === tab ? 'rounded-lg bg-[var(--accent)] px-3 py-1 text-xs font-bold text-black' : 'rounded-lg border border-[var(--border)] px-3 py-1 text-xs text-muted'}>{t}</button>
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={cn(
+                  'text-xs transition-colors duration-150 ease-out active:scale-[0.98]',
+                  t === tab
+                    ? 'font-semibold text-[var(--brand)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                )}
+              >
+                {t}
+              </button>
             ))}
           </div>
-          <div className="grid gap-3 lg:grid-cols-3">
-            <Panel>
-              <PanelTitle>Technical summary</PanelTitle>
-              {sig && <div className="text-sm">Bullish <strong>{sig.summary.bullish}</strong> · Neutral <strong>{sig.summary.neutral}</strong> · Bearish <strong>{sig.summary.bearish}</strong></div>}
-              <div className="mt-2 space-y-1">{sig?.signals.map((s) => <div key={s.indicator} className="flex justify-between text-sm"><span className="text-muted">{s.indicator}</span><span><Badge tone={s.signal === 'BUY' ? 'up' : s.signal === 'SELL' ? 'down' : 'warn'}>{s.signal}</Badge> <span className="text-xs text-muted">{s.detail}</span></span></div>)}</div>
-            </Panel>
-            <Panel>
-              <PanelTitle>Indicadores ({tab})</PanelTitle>
-              {snap ? (
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-muted">RSI</span><strong className="tabular">{snap.rsi?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">MACD hist</span><strong className="tabular">{snap.macdHist?.toFixed(4) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">SMA20/50/200</span><strong className="tabular">{snap.sma20?.toFixed(1) ?? '—'} / {snap.sma50?.toFixed(1) ?? '—'} / {snap.sma200?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">EMA12/26</span><strong className="tabular">{snap.ema12?.toFixed(1) ?? '—'} / {snap.ema26?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">Supertrend</span><strong>{snap.supertrend ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">ADX / ATR</span><strong className="tabular">{snap.adx?.toFixed(1) ?? '—'} / {snap.atr?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">Stoch K/D</span><strong className="tabular">{snap.stochK?.toFixed(1) ?? '—'} / {snap.stochD?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">BB U/M/L</span><strong className="tabular">{snap.bbUpper?.toFixed(1) ?? '—'} / {snap.bbMid?.toFixed(1) ?? '—'} / {snap.bbLower?.toFixed(1) ?? '—'}</strong></div>
-                  <div className="flex justify-between"><span className="text-muted">Volume ratio</span><strong className="tabular">{snap.volumeRatio ? `${snap.volumeRatio.toFixed(2)}×` : '—'}</strong></div>
-                </div>
-              ) : <div className="text-sm text-muted">Sem dados.</div>}
-            </Panel>
-            <Panel>
-              <PanelTitle>Market context</PanelTitle>
-              <div className="space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-muted">Asset</span><strong>{symbol} <span className="text-xs text-muted">({kind === 'crypto' ? `Binance ${resolved?.binanceSymbol ?? ''}` : `Yahoo ${resolved?.yahooSymbol ?? ''}`})</span></strong></div>
-                <div className="flex justify-between"><span className="text-muted">Market Regime</span><strong>{kind === 'crypto' ? a.regime.label : '—'}</strong></div>
-                <div className="flex justify-between"><span className="text-muted">Setor</span><strong>{cryptoMeta?.sector ?? '—'}</strong></div>
-                <div className="flex justify-between"><span className="text-muted">Qualidade dados</span><strong>{score?.dataQuality ?? '—'}%</strong></div>
-                <div className="flex justify-between"><span className="text-muted">Alinhamento TF</span><strong>{score?.timeframeAlignment ?? '—'}%</strong></div>
+
+          <div className="grid gap-6 lg:grid-cols-3">
+            <MSection
+              title="Sumário técnico"
+              right={
+                sig ? (
+                  <span className="flex items-center gap-1.5 text-[11px] tabular-nums">
+                    <span className="font-semibold text-[var(--bull)]">▲ {sig.summary.bullish}</span>
+                    <span className="text-[var(--text-muted)]">·</span>
+                    <span className="font-semibold text-[var(--text-secondary)]">■ {sig.summary.neutral}</span>
+                    <span className="text-[var(--text-muted)]">·</span>
+                    <span className="font-semibold text-[var(--bear)]">▼ {sig.summary.bearish}</span>
+                  </span>
+                ) : undefined
+              }
+            >
+              <div className="divide-y divide-[var(--border)]">
+                {sig?.signals.map((s) => (
+                  <div key={s.indicator} className="flex items-center justify-between gap-3 py-1.5 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                    <span className="text-[var(--text-secondary)]">{s.indicator}</span>
+                    <span className="flex items-baseline gap-2 text-right">
+                      <span className={cn(
+                        'text-xs font-semibold uppercase tracking-wider',
+                        s.signal === 'BUY' ? 'text-[var(--bull)]' : s.signal === 'SELL' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'
+                      )}>
+                        {s.signal}
+                      </span>
+                      <span className="text-xs tabular-nums text-[var(--text-muted)]">{s.detail}</span>
+                    </span>
+                  </div>
+                ))}
               </div>
-              {score && <p className="mt-3 text-sm text-muted">{interpret(symbol, tf, score, kind === 'crypto' ? a.regime : null)}</p>}
-            </Panel>
+            </MSection>
+
+            <MSection
+              title={`Indicadores · ${tab}`}
+              right={<span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Snapshot ao vivo</span>}
+            >
+              {snap ? (
+                <dl>
+                  {[
+                    ['RSI (14)', snap.rsi?.toFixed(1) ?? '—'],
+                    ['MACD histograma', snap.macdHist?.toFixed(4) ?? '—'],
+                    ['SMA 20 / 50 / 200', `${snap.sma20?.toFixed(1) ?? '—'} / ${snap.sma50?.toFixed(1) ?? '—'} / ${snap.sma200?.toFixed(1) ?? '—'}`],
+                    ['EMA 12 / 26', `${snap.ema12?.toFixed(1) ?? '—'} / ${snap.ema26?.toFixed(1) ?? '—'}`],
+                    ['Supertrend', snap.supertrend ?? '—'],
+                    ['ADX / ATR', `${snap.adx?.toFixed(1) ?? '—'} / ${snap.atr?.toFixed(1) ?? '—'}`],
+                    ['Stochastic %K / %D', `${snap.stochK?.toFixed(1) ?? '—'} / ${snap.stochD?.toFixed(1) ?? '—'}`],
+                    ['Bollinger (U/M/L)', `${snap.bbUpper?.toFixed(1) ?? '—'} / ${snap.bbMid?.toFixed(1) ?? '—'} / ${snap.bbLower?.toFixed(1) ?? '—'}`],
+                    ['Razão de volume', snap.volumeRatio ? `${snap.volumeRatio.toFixed(2)}×` : '—'],
+                  ].map(([label, val]) => (
+                    <MRow key={label} k={label} v={val} />
+                  ))}
+                </dl>
+              ) : (
+                <MEmpty title="Sem dados disponíveis" />
+              )}
+            </MSection>
+
+            <MSection
+              title="Contexto de mercado"
+              right={<span className="text-xs uppercase tracking-wider text-zinc-500">Regime</span>}
+            >
+              <dl>
+                <MRow k="Ativo e feed" v={symbol} sub={kind === 'crypto' ? `Binance ${resolved?.binanceSymbol ?? ''}` : `Yahoo ${resolved?.yahooSymbol ?? ''}`} />
+                <MRow k="Regime de mercado" v={kind === 'crypto' ? a.regime.label : '—'} />
+                <MRow k="Setor econômico" v={cryptoMeta?.sector ?? '—'} />
+                <MRow k="Qualidade dos dados" v={`${score?.dataQuality ?? '—'}%`} />
+                <MRow k="Alinhamento multi-TF" v={`${score?.timeframeAlignment ?? '—'}%`} />
+              </dl>
+              {score && (
+                <p className="mt-3 border-t border-[var(--border)] pt-3 text-sm leading-6 text-[var(--text-secondary)]">
+                  {interpret(symbol, tf, score, kind === 'crypto' ? a.regime : null)}
+                </p>
+              )}
+            </MSection>
           </div>
-          <div className="grid gap-3 lg:grid-cols-2">
-            <Panel>
-              <PanelTitle>Por que este sinal?</PanelTitle>
-              <ul className="list-disc pl-5 text-sm">{score?.why.map((w) => <li key={w}>{w}</li>)}</ul>
-              {score?.risks.length ? <><div className="mt-2 text-sm font-bold">Riscos</div><ul className="list-disc pl-5 text-sm text-muted">{score.risks.map((w) => <li key={w}>{w}</li>)}</ul></> : null}
-            </Panel>
-            <Panel>
-              <PanelTitle>Sinais semelhantes no passado</PanelTitle>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <MSection title="Por que este sinal?">
+              <ul className="divide-y divide-[var(--border)]">
+                {score?.why.map((w) => (
+                  <li key={w} className="flex items-start gap-2 py-1.5 text-sm text-[var(--text-secondary)]">
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--bull)]" aria-hidden="true" />
+                    <span>{w}</span>
+                  </li>
+                ))}
+              </ul>
+              {score?.risks.length ? (
+                <>
+                  <div className="mt-3 text-xs uppercase tracking-wider text-[var(--text-muted)]">Fatores de risco observados</div>
+                  <ul className="divide-y divide-[var(--border)]">
+                    {score.risks.map((w) => (
+                      <li key={w} className="flex items-start gap-2 py-1.5 text-sm text-[var(--text-secondary)]">
+                        <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--bear)]" aria-hidden="true" />
+                        <span>{w}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </MSection>
+
+            <MSection title="Sinais semelhantes no passado">
               {fwd && fwd.up2d24h !== null ? (
-                <div className="text-sm">Quando score ≥ 70 apareceu (n={fwd.n}): <strong>+2% em 24h: {fwd.up2d24h.toFixed(0)}%</strong> · <strong>+5% em 7d: {(fwd.up5d7d ?? 0).toFixed(0)}%</strong></div>
-              ) : <div className="text-sm text-muted">Insufficient sample size</div>}
-              {bt && <div className="mt-2 text-sm text-muted">Backtest local (score≥70, hold 7d): {bt.trades} trades · win {bt.winRate.toFixed(1)}% · ret médio {bt.avgReturn.toFixed(2)}% · PF {bt.profitFactor.toFixed(2)} · DD {bt.maxDrawdown.toFixed(1)}%</div>}
-            </Panel>
+                <div className="text-sm text-[var(--text-secondary)]">
+                  <div className="text-xs uppercase tracking-wider text-[var(--text-muted)] tabular-nums">Amostra histórica (score ≥ 70, n={fwd.n})</div>
+                  <div className="mt-2 flex items-center gap-4 tabular-nums">
+                    <div>+2% em 24h: <span className="font-semibold text-[var(--bull)]">{fwd.up2d24h.toFixed(0)}%</span></div>
+                    <div>+5% em 7d: <span className="font-semibold text-[var(--bull)]">{(fwd.up5d7d ?? 0).toFixed(0)}%</span></div>
+                  </div>
+                </div>
+              ) : (
+                <MEmpty title="Amostra insuficiente" hint="Sem projeção estatística confiável para este sinal." />
+              )}
+              {bt && (
+                <p className="mt-3 border-t border-[var(--border)] pt-3 text-xs tabular-nums leading-5 text-[var(--text-muted)]">
+                  Backtest local (score ≥ 70, hold 7d, líq. de custos): {bt.trades} trades · win {bt.winRate.toFixed(1)}% · ret médio {bt.avgReturn.toFixed(2)}% · PF {formatPF(bt.profitFactor, bt.trades)} · DD {bt.maxDrawdown.toFixed(1)}% · α {bt.alpha >= 0 ? '+' : ''}{bt.alpha.toFixed(1)}%
+                </p>
+              )}
+            </MSection>
           </div>
         </>
       )}

@@ -13,8 +13,13 @@ import { syncWedgeLog, wedgeBreakStats, type WedgeKind, type WedgeState } from '
 import { computeMaSet, ensureMaKlines, maCrossDiff, maCrossTitle, slowsFor, MA_FASTS, type MaFast, type MaKind, type MaSet } from '@/services/maTable';
 import { isActiveCoin, isStablecoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle } from '@/types';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty, Seg, Btn, Micro } from '@/components/ui/kit';
-import { ArrowUpRight, BarChart3, Bell, CheckCircle2, ChevronLeft, ChevronRight, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, Zap, type LucideIcon } from 'lucide-react';
+import { Skeleton, ErrorBox, Seg } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MEmpty } from '@/components/minimal/MEmpty';
+import { MDot } from '@/components/minimal/MStats';
+import { CoinLogo } from '@/components/ui/coin-logo';
+import { ArrowUpRight, BarChart3, Bell, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, Plus, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, X, Zap, type LucideIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
@@ -82,7 +87,7 @@ const MON_ICON_MAP: Record<string, LucideIcon> = {  'trend-up': TrendingUp, aler
   'trend-down': TrendingDown, gem: Gem, zap: Zap, siren: Siren,
   'up-right': ArrowUpRight, eye: Eye, star: Star,
 };
-export function monIcon(key: string, size = 13) {
+export function monIcon(key: string, size = 14) {
   const I = MON_ICON_MAP[key] ?? Star;
   return <I size={size} />;
 }
@@ -144,7 +149,7 @@ function trendSortVal(c: UniverseCoin, k: SortKey, pre?: CoinTrend | null): numb
   }
 }
 
-const toneUpDown = (v: number | null | undefined) => ({ color: (v ?? 0) >= 0 ? 'var(--up)' : 'var(--down)' }) as const;
+const toneUpDown = (v: number | null | undefined) => ((v ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400');
 
 export function Radar() {
   const u = useUniverseCrypto();
@@ -738,11 +743,11 @@ export function Radar() {
   }, [u.coins]);
 
   const th = (label: string, k?: SortKey) => (
-    <button onClick={() => k && setSort((s) => ({ k, d: s.k === k ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]" title={k ? 'Clique para ordenar: maior → menor → menor → maior' : undefined}>
+    <button onClick={() => k && setSort((s) => ({ k, d: s.k === k ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-300 active:scale-[0.98]" title={k ? 'Clique para ordenar: maior → menor → menor → maior' : undefined}>
       {label}
       {k && (sort.k === k
-        ? <span className="text-[10px] leading-none text-[var(--accent)]">{sort.d === -1 ? '▼' : '▲'}</span>
-        : <span className="text-[10px] leading-none opacity-50">⇅</span>)}
+        ? <span className="text-[10px] leading-none tabular-nums text-cyan-300">{sort.d === -1 ? '▼' : '▲'}</span>
+        : <span className="text-[10px] leading-none tabular-nums text-zinc-600">⇅</span>)}
     </button>
   );
 
@@ -750,25 +755,24 @@ export function Radar() {
     return (
       <div className="space-y-3">
         <MarketStrip />
-        <Panel>
-          <PanelTitle>Crypto Radar — carregando universo</PanelTitle>
-          <div className="space-y-2 py-6 text-center text-sm text-muted">
+        <MSection title="Crypto Radar — carregando universo">
+          <div className="space-y-2 py-6 text-center text-sm text-zinc-400">
             <div>Buscando moedas na CoinGecko (página {u.page || 1})…</div>
-            <div className="tabular">{u.loaded.toLocaleString('pt-BR')} carregadas até agora</div>
+            <div className="tabular-nums">{u.loaded.toLocaleString('pt-BR')} carregadas até agora</div>
           </div>
           <Skeleton className="h-48" />
-        </Panel>
+        </MSection>
       </div>
     );
   }
   if (!u.coins.length && !u.done) return <Skeleton className="h-96" />;
 
   const pill = (v: number | null | undefined) => (
-    <span className="tabular rounded px-1.5 py-0.5 text-xs font-bold text-black" style={{ background: (v ?? 0) >= 0 ? 'rgba(52,211,153,0.55)' : 'rgba(251,113,133,0.55)' }}>
+    <span className={cn('tabular-nums text-xs font-semibold', v == null ? 'text-zinc-600' : v >= 0 ? 'text-emerald-400' : 'text-red-400')}>
       {v == null ? '—' : fmtPct(v)}
     </span>
   );
-  const dash = <span className="text-xs text-muted">—</span>;
+  const dash = <span className="text-xs tabular-nums text-zinc-600">—</span>;
   const rsiOps: { k: RsiOp; label: string }[] = [
     { k: 'gte', label: 'Maior ou igual' },
     { k: 'lte', label: 'Menor ou igual' },
@@ -776,26 +780,16 @@ export function Radar() {
     { k: 'lt', label: 'Menor que' },
   ];
   const trendPill = (s: TrendState | null) => {
-    const b = trendBadge(s);
-    if (!b) return dash;
-    if (s === 'Neutro') return <span className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] font-semibold text-muted">{s}</span>;
-    return (
-      <span
-        className={`rounded px-1.5 py-0.5 text-[11px] ${b.bold ? 'font-bold' : 'font-semibold'}`}
-        style={{ background: b.bg, color: b.fg }}
-      >
-        {s}
-      </span>
-    );
+    if (!s) return dash;
+    const tone = s.startsWith('Alta') ? 'up' : s.startsWith('Baixa') ? 'down' : 'flat';
+    return <MDot tone={tone as 'up' | 'down' | 'flat'}>{s}</MDot>;
   };
   const shiftPill = (m: { from: TrendState; to: TrendState; delta: number } | null) => {
     const b = shiftBadge(m);
-    if (!b) return dash;
+    if (!b || !m) return dash;
+    const cls = m.delta > 0 ? 'text-emerald-400' : m.delta < 0 ? 'text-red-400' : 'text-zinc-400';
     return (
-      <span
-        className="rounded px-1.5 py-0.5 text-[11px] font-semibold"
-        style={{ background: b.bg, color: b.fg }}
-      >
+      <span className={`text-xs font-semibold ${cls}`}>
         {b.text}
       </span>
     );
@@ -870,19 +864,24 @@ export function Radar() {
   };
   const gridCols = cols[tab].map((c) => c.w).join(' ');
 
-  const cellFav = (d: UniverseCoin) => (
-    <span>
-      <button onClick={() => toggleFav(d.symbol)} title="Favoritar" className="text-lg">{favs.includes(d.symbol) ? '★' : '☆'}</button>
-      <button onClick={() => toggleWatch(d.symbol)} title="Watchlist" className="text-xs text-muted">+W</button>
-    </span>
-  );
+  const cellFav = (d: UniverseCoin) => {
+    const isFav = favs.includes(d.symbol);
+    return (
+      <span className="flex items-center gap-2">
+        <button onClick={() => toggleFav(d.symbol)} title="Favoritar" className={`transition-colors duration-150 ease-out active:scale-[0.98] ${isFav ? 'text-amber-300' : 'text-zinc-600 hover:text-zinc-300'}`}>
+          <Star size={14} fill={isFav ? 'currentColor' : 'none'} />
+        </button>
+        <button onClick={() => toggleWatch(d.symbol)} title="Watchlist" className="text-xs text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]">+W</button>
+      </span>
+    );
+  };
   const cellAsset = (d: UniverseCoin) => (
-    <span className="truncate"><Link to={`/monitor?symbol=${d.symbol}`} className="font-bold hover:underline">{d.symbol}</Link> <span className="text-xs text-muted">{d.name}</span></span>
+    <span className="truncate"><Link to={`/monitor?symbol=${d.symbol}`} className="font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline">{d.symbol}</Link> <span className="text-xs text-[var(--text-muted)]">{d.name}</span></span>
   );
   const indActive = IND_TABS.includes(tab) || tab === 'RSI' || tab === 'SUPER' || tab === 'SMA' || tab === 'EMA' || tab === 'TREND';
   const indCount = tab === 'RSI' ? rsiSnaps.size : tab === 'SUPER' ? superSnaps.size : tab === 'SMA' || tab === 'EMA' ? maKlines.size : tab === 'TREND' ? trendWarm.size : snaps.size;
   const indNote = indActive && (
-    <span className="text-xs normal-case text-muted">
+    <span className="text-xs normal-case tabular-nums text-zinc-500">
       {indProg ? ` calculando ${indProg.done}/${indProg.total}…` : ` top ${fetchN} por market cap · ${indCount} com indicadores`}
       {tab === 'RSI' && rsiPartial && !indProg && ' · Binance fora, via alternativas (lento)'}
       {tab === 'SR' && !indProg && ' · base semanal (5 diários fechados = Monitor no 1d)'}
@@ -892,22 +891,19 @@ export function Radar() {
   const stochStatus = (v: number | null | undefined) => {
     if (v == null) return dash;
     if (v < 20) {
-      return <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: 'color-mix(in srgb, var(--down) 20%, transparent)', color: 'var(--down)' }}>Sobrevendido</span>;
+      return <span className="text-xs font-semibold text-red-400">Sobrevendido</span>;
     }
     if (v > 80) {
-      return <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: 'color-mix(in srgb, var(--up) 20%, transparent)', color: 'var(--up)' }}>Sobrecomprado</span>;
+      return <span className="text-xs font-semibold text-emerald-400">Sobrecomprado</span>;
     }
-    return <span className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] font-semibold text-muted">Neutro</span>;
+    return <span className="text-xs font-semibold text-zinc-400">Neutro</span>;
   };
   const attPill = (a: { ratio: number; dir: 'up' | 'down' | 'flat'; unusual: boolean } | null) => {
     if (!a) return dash;
-    if (!a.unusual) return <span className="rounded bg-white/5 px-1.5 py-0.5 text-[11px] font-semibold text-muted">Normal</span>;
+    if (!a.unusual) return <span className="text-xs font-semibold text-zinc-400">Normal</span>;
     const up = a.dir !== 'down';
     return (
-      <span
-        className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-        style={{ background: `color-mix(in srgb, var(${up ? '--up' : '--down'}) 20%, transparent)`, color: `var(${up ? '--up' : '--down'})` }}
-      >
+      <span className={`text-xs font-semibold tabular-nums ${up ? 'text-emerald-400' : 'text-red-400'}`}>
         {up ? '↑' : '↓'} {a.ratio.toFixed(1)}× média
       </span>
     );
@@ -916,45 +912,25 @@ export function Radar() {
     if (!dir) return dash;
     const up = dir === 'BULLISH';
     return (
-      <span
-        className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-        style={{ background: `color-mix(in srgb, var(${up ? '--up' : '--down'}) 18%, transparent)`, color: `var(${up ? '--up' : '--down'})` }}
-      >
+      <span className={`text-xs font-semibold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
         {up ? 'Alta' : 'Baixa'}
       </span>
     );
   };
   const rsiCell = (v: number | null | undefined) => {    const b = rsiBand(v);
     if (!b || v == null) return dash;
-    const color = b === 'low' ? 'var(--down)' : b === 'high' ? 'var(--up)' : 'var(--warn)';
+    const color = b === 'low' ? 'text-red-400' : b === 'high' ? 'text-emerald-400' : 'text-zinc-400';
     return (
-      <span
-        className="tabular rounded px-1.5 py-0.5 text-[11px] font-bold"
-        style={{ background: `color-mix(in srgb, ${color} ${b === 'mid' ? 12 : 20}%, transparent)`, color }}
-      >
+      <span className={`tabular-nums text-xs font-semibold ${color}`}>
         {v.toFixed(2)}
       </span>
     );
   };
 
-  const monVar = (color: MonColor) =>
-    color === 'green' ? 'var(--up)' : color === 'red' ? 'var(--down)' : color === 'yellow' ? 'var(--warn)' : 'var(--accent)';
-  const monTint = (color: MonColor): React.CSSProperties => ({
-    background: `color-mix(in srgb, ${monVar(color)} 16%, transparent)`,
-    borderColor: `color-mix(in srgb, ${monVar(color)} 30%, transparent)`,
-  });
-  const coinIcon = (c: UniverseCoin, size = 22) =>
-    c.image ? (
-      <img
-        src={c.image} alt="" width={size} height={size} loading="lazy"
-        className="shrink-0 rounded-full"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
-      />
-    ) : (
-      <span className="flex shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-bold" style={{ width: size, height: size }}>
-        {c.symbol.slice(0, 1)}
-      </span>
-    );
+  // Toda cripto com logo: CoinGecko (c.image) → CDN CoinCap → avatar-letra. Nunca some.
+  const coinIcon = (c: UniverseCoin, size = 22) => (
+    <CoinLogo symbol={c.symbol} image={c.image} size={size} />
+  );
   const fmtDT = (ts: number) => {
     const d = new Date(ts);
     const p = (n: number) => String(n).padStart(2, '0');
@@ -981,21 +957,21 @@ export function Radar() {
       case 'BTC': {
         const rel = (v: number | null | undefined, b: number | null | undefined) => (v == null || b == null ? null : v - b);
         return (<>
-          <span className="tabular text-xs text-muted">{idx + 1}</span>
+          <span className="tabular-nums text-xs text-zinc-500">{idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular" style={toneUpDown(rel(d.change1h, btc.c1h))}>{rel(d.change1h, btc.c1h) != null ? fmtPct(rel(d.change1h, btc.c1h)) : '—'}</span>
-          <span className="tabular" style={toneUpDown(rel(d.change24h, btc.c24))}>{rel(d.change24h, btc.c24) != null ? fmtPct(rel(d.change24h, btc.c24)) : '—'}</span>
-          <span className="tabular" style={toneUpDown(rel(d.change7d, btc.c7d))}>{rel(d.change7d, btc.c7d) != null ? fmtPct(rel(d.change7d, btc.c7d)) : '—'}</span>
-          <span className="tabular" style={toneUpDown(rel(d.change30d, btc.c30d))}>{rel(d.change30d, btc.c30d) != null ? fmtPct(rel(d.change30d, btc.c30d)) : '—'}</span>
-          <span className="tabular" style={toneUpDown(d.change30d)}>{fmtPct(d.change30d)}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(rel(d.change1h, btc.c1h))}`}>{rel(d.change1h, btc.c1h) != null ? fmtPct(rel(d.change1h, btc.c1h)) : '—'}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(rel(d.change24h, btc.c24))}`}>{rel(d.change24h, btc.c24) != null ? fmtPct(rel(d.change24h, btc.c24)) : '—'}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(rel(d.change7d, btc.c7d))}`}>{rel(d.change7d, btc.c7d) != null ? fmtPct(rel(d.change7d, btc.c7d)) : '—'}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(rel(d.change30d, btc.c30d))}`}>{rel(d.change30d, btc.c30d) != null ? fmtPct(rel(d.change30d, btc.c30d)) : '—'}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(d.change30d)}`}>{fmtPct(d.change30d)}</span>
           {cellFav(d)}
         </>);
       }
       case 'PERF':
         return (<>
-          <span className="tabular text-xs text-muted">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-xs text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular">{fmtPrice(d.price)}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{fmtPrice(d.price)}</span>
           <span>{pill(d.change1h)}</span><span>{pill(d.change24h)}</span><span>{pill(d.change7d)}</span>
           <span>{pill(d.change30d)}</span><span>{pill(d.change1y)}</span>
           {cellFav(d)}
@@ -1007,10 +983,10 @@ export function Radar() {
         const isWatch = watchlist.includes(d.symbol);
         return (<>
           <span className="flex min-w-0 items-center gap-1.5">
-            <button onClick={() => toggleFav(d.symbol)} title={isFav ? 'Remover dos favoritos' : 'Favoritar'} className={`shrink-0 text-base ${isFav ? 'text-[var(--warn)]' : 'text-muted hover:text-white'}`}>{isFav ? '★' : '☆'}</button>
+            <button onClick={() => toggleFav(d.symbol)} title={isFav ? 'Remover dos favoritos' : 'Favoritar'} className={`shrink-0 transition-colors duration-150 ease-out active:scale-[0.98] ${isFav ? 'text-amber-300' : 'text-zinc-600 hover:text-zinc-300'}`}><Star size={14} fill={isFav ? 'currentColor' : 'none'} /></button>
             {coinIcon(d)}{cellAsset(d)}
           </span>
-          <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
           <span>{trendPill(t?.curto ?? null)}</span>
           <span>{trendPill(t?.medio ?? null)}</span>
           <span>{trendPill(t?.longo ?? null)}</span>
@@ -1018,8 +994,8 @@ export function Radar() {
           <span>{shiftPill(t?.mudMedio ?? null)}</span>
           <span>{shiftPill(t?.mudLongo ?? null)}</span>
           <span className="flex items-center gap-1.5">
-            <button onClick={() => toggleWatch(d.symbol)} title={isWatch ? 'Remover do watchlist' : 'Observar'} className={`text-xs ${isWatch ? 'font-bold text-[var(--accent)]' : 'text-muted hover:text-white'}`}>+W</button>
-            <Link to={`/monitor?symbol=${d.symbol}`} title="Abrir gráfico" className="rounded-md bg-[var(--surface-2)] p-1.5 text-muted hover:text-white"><BarChart3 size={15} /></Link>
+            <button onClick={() => toggleWatch(d.symbol)} title={isWatch ? 'Remover do watchlist' : 'Observar'} className={`text-xs transition-colors duration-150 ease-out active:scale-[0.98] ${isWatch ? 'font-semibold text-cyan-300' : 'text-zinc-500 hover:text-zinc-200'}`}>+W</button>
+            <Link to={`/monitor?symbol=${d.symbol}`} title="Abrir gráfico" className="p-1.5 text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"><BarChart3 size={14} /></Link>
           </span>
         </>);
       }
@@ -1027,8 +1003,8 @@ export function Radar() {
         const r = rsiSnaps.get(d.symbol);
         return (<>
           {cellAsset(d)}
-          <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtPrice(d.price)}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{fmtPrice(d.price)}</span>
           {RSI_COLS.map((c) => <span key={c.k}>{rsiCell(r?.[c.k])}</span>)}
           {cellFav(d)}
         </>);
@@ -1040,9 +1016,9 @@ export function Radar() {
           : stochFromSpark(d, indTf);
         return (<>
           {cellAsset(d)}
-          <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{s.k != null ? s.k.toFixed(2) : '—'}</span>
-          <span className="tabular">{s.d != null ? s.d.toFixed(2) : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{s.k != null ? s.k.toFixed(2) : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{s.d != null ? s.d.toFixed(2) : '—'}</span>
           <span>{stochStatus(s.k)}</span>
           <span>{stochStatus(s.d)}</span>
           {cellFav(d)}
@@ -1055,7 +1031,7 @@ export function Radar() {
           {SUPER_TFS.flatMap((t) => {
             const p = s?.[t.k];
             return [
-              <span key={`${t.k}-v`} className="tabular">{p?.value != null ? fmtPrice(p.value) : '—'}</span>,
+              <span key={`${t.k}-v`} className="tabular-nums text-right text-sm text-zinc-200">{p?.value != null ? fmtPrice(p.value) : '—'}</span>,
               <span key={`${t.k}-t`}>{superDirPill(p?.dir ?? null)}</span>,
             ];
           })}
@@ -1066,23 +1042,23 @@ export function Radar() {
         const a = kl ? unusualMove(kl.map((k) => k.close)) : null;
         return (<>
           {cellAsset(d)}
-          <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtPrice(d.price)}</span>
-          <span className="tabular" style={toneUpDown(a?.todayPct)}>{a ? fmtPct(a.todayPct) : '—'}</span>
-          <span className="tabular">{a ? fmtPct(a.avg10) : '—'}</span>
-          <span className="tabular font-bold">{a ? `${a.ratio.toFixed(1)}×` : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{fmtPrice(d.price)}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(a?.todayPct)}`}>{a ? fmtPct(a.todayPct) : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-400">{a ? fmtPct(a.avg10) : '—'}</span>
+          <span className="tabular-nums text-right text-sm font-semibold text-zinc-200">{a ? `${a.ratio.toFixed(1)}×` : '—'}</span>
           <span>{attPill(a)}</span>
-          <span className="tabular">{d.volume24h ? fmtUSD(d.volume24h, 0) : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-400">{d.volume24h ? fmtUSD(d.volume24h, 0) : '—'}</span>
           {cellFav(d)}
         </>);
       }
       case 'MACD': {
         const h = sn?.macdHist;
         return (<>
-          <span className="tabular text-xs text-muted">{idx + 1}</span>
+          <span className="tabular-nums text-xs text-zinc-500">{idx + 1}</span>
           {cellAsset(d)}
-          <span className="tabular" style={toneUpDown(h)}>{h != null ? h.toFixed(4) : '—'}</span>
-          <span>{h != null ? <Badge tone={h > 0 ? 'up' : 'down'}>{h > 0 ? 'Positivo' : 'Negativo'}</Badge> : dash}</span>
+          <span className={`tabular-nums text-right text-sm ${toneUpDown(h)}`}>{h != null ? h.toFixed(4) : '—'}</span>
+          <span>{h != null ? <span className={`text-xs font-semibold ${h > 0 ? 'text-emerald-400' : 'text-red-400'}`}>{h > 0 ? 'Positivo' : 'Negativo'}</span> : dash}</span>
           {cellFav(d)}
         </>);
       }
@@ -1095,28 +1071,18 @@ export function Radar() {
         const belowLower = b.lower != null && d.price < b.lower;
         return (<>
           {cellAsset(d)}
-          <span className="tabular text-sm">{rankMap.get(d.symbol) ?? idx + 1}</span>
-          <span className="tabular">{fmtPrice(d.price)}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-500">{rankMap.get(d.symbol) ?? idx + 1}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{fmtPrice(d.price)}</span>
           <span>
             {b.upper == null ? dash : (
-              <span
-                className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-                style={aboveUpper
-                  ? { background: 'color-mix(in srgb, var(--up) 20%, transparent)', color: 'var(--up)' }
-                  : { background: 'color-mix(in srgb, var(--down) 20%, transparent)', color: 'var(--down)' }}
-              >
+              <span className={`text-xs font-semibold ${aboveUpper ? 'text-emerald-400' : 'text-red-400'}`}>
                 {aboveUpper ? 'Acima' : 'Abaixo'}
               </span>
             )}
           </span>
           <span>
             {b.lower == null ? dash : (
-              <span
-                className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-                style={belowLower
-                  ? { background: 'color-mix(in srgb, var(--down) 20%, transparent)', color: 'var(--down)' }
-                  : { background: 'color-mix(in srgb, var(--up) 20%, transparent)', color: 'var(--up)' }}
-              >
+              <span className={`text-xs font-semibold ${belowLower ? 'text-red-400' : 'text-emerald-400'}`}>
                 {belowLower ? 'Abaixo' : 'Acima'}
               </span>
             )}
@@ -1131,18 +1097,13 @@ export function Radar() {
         const set = maVals.get(d.symbol);
         return (<>
           {cellAsset(d)}
-          <span className="tabular">{fmtPrice(d.price)}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{fmtPrice(d.price)}</span>
           {slowsFor(fast).map((s) => {
             const diff = maCrossDiff(set ?? null, kind, fast, s);
             return (
               <span key={s}>
                 {diff == null ? dash : (
-                  <span
-                    className="rounded px-1.5 py-0.5 text-[11px] font-bold"
-                    style={diff > 0
-                      ? { background: 'color-mix(in srgb, var(--up) 18%, transparent)', color: 'var(--up)' }
-                      : { background: 'color-mix(in srgb, var(--down) 18%, transparent)', color: 'var(--down)' }}
-                  >
+                  <span className={`text-xs font-semibold ${diff > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {diff > 0 ? 'Acima' : 'Abaixo'}
                   </span>
                 )}
@@ -1155,12 +1116,12 @@ export function Radar() {
       case 'SR': {
         const pv = srPivots.get(d.symbol);
         const lvl = (v: number | null | undefined) => (
-          <span className="tabular">{v != null ? fmtPrice(v) : '—'}</span>
+          <span className="tabular-nums text-right text-sm text-zinc-200">{v != null ? fmtPrice(v) : '—'}</span>
         );
         return (<>
           {cellAsset(d)}
           <span>
-            <span className="tabular rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: 'color-mix(in srgb, var(--warn) 22%, transparent)', color: 'var(--warn)' }}>
+            <span className="tabular-nums text-right text-sm font-semibold text-[var(--text-primary)]">
               {d.price != null ? fmtPrice(d.price) : '—'}
             </span>
           </span>
@@ -1183,36 +1144,33 @@ export function Radar() {
       <MarketStrip />
       {tab === 'MON' && (
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold">Indicadores</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Indicadores</h2>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setMonMode('business')}
               title="O que já aconteceu e continua ativo"
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold ${monMode === 'business' ? 'border-[var(--up)] text-[var(--up)]' : 'border-[var(--border)] text-muted'}`}
-              style={monMode === 'business' ? { background: 'color-mix(in srgb, var(--up) 12%, transparent)' } : undefined}
+              className={`inline-flex items-center gap-1.5 border-b px-2 py-1.5 text-xs font-semibold transition-colors duration-150 ease-out active:scale-[0.98] ${monMode === 'business' ? 'border-cyan-300 text-cyan-300' : 'border-transparent text-zinc-500 hover:text-zinc-200'}`}
             >
               <Globe size={14} /> Business
             </button>
             <button
               onClick={() => setMonMode('realtime')}
               title="O que está acontecendo agora"
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-bold ${monMode === 'realtime' ? 'border-[var(--up)] text-[var(--up)]' : 'border-[var(--border)] text-muted'}`}
-              style={monMode === 'realtime' ? { background: 'color-mix(in srgb, var(--up) 12%, transparent)' } : undefined}
+              className={`inline-flex items-center gap-1.5 border-b px-2 py-1.5 text-xs font-semibold transition-colors duration-150 ease-out active:scale-[0.98] ${monMode === 'realtime' ? 'border-cyan-300 text-cyan-300' : 'border-transparent text-zinc-500 hover:text-zinc-200'}`}
             >
               <TrendingUp size={14} /> Realtime
             </button>
             <button
               onClick={() => setMonFavOnly((v) => !v)}
               title="Somente favoritas"
-              className={`rounded-lg border p-2 ${monFavOnly ? 'border-[var(--warn)] text-[var(--warn)]' : 'border-[var(--border)] text-muted'}`}
+              className={`p-2 transition-colors duration-150 ease-out active:scale-[0.98] ${monFavOnly ? 'text-amber-300' : 'text-zinc-500 hover:text-zinc-200'}`}
             >
               <Star size={14} fill={monFavOnly ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => setMonListOpen(true)}
               title={`Filtros (${activeMonFilters.length}/${allMonFilters.length})`}
-              className="rounded-lg border border-[var(--up)] p-2 text-[var(--up)]"
-              style={{ background: 'color-mix(in srgb, var(--up) 12%, transparent)' }}
+              className="p-2 text-zinc-400 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"
             >
               <Filter size={14} />
             </button>
@@ -1226,28 +1184,28 @@ export function Radar() {
                 }
               }}
               title={notifPerm === 'granted' ? 'Alertas desktop ativos: a vigia avisa de qualquer página' : 'Ativar alertas desktop do monitor'}
-              className={`rounded-lg border p-2 ${notifPerm === 'granted' ? 'border-[var(--up)] text-[var(--up)]' : 'border-[var(--border)] text-muted'}`}
+              className={`p-2 transition-colors duration-150 ease-out active:scale-[0.98] ${notifPerm === 'granted' ? 'text-cyan-300' : 'text-zinc-500 hover:text-zinc-200'}`}
             >
               <Bell size={14} fill={notifPerm === 'granted' ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => { setMonDraft(blankDraft()); setMonBuilderOpen(true); }}
               title="Visualizar e cadastrar alertas"
-              className="rounded-lg border border-[var(--border)] p-2 text-muted hover:text-white"
+              className="p-2 text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"
             >
               <ListPlus size={14} />
             </button>
             <button
               onClick={() => setMonExpanded((v) => !v)}
               title={monExpanded ? 'Compactar' : 'Expandir'}
-              className="rounded-lg border border-[var(--border)] p-2 text-muted hover:text-white"
+              className="p-2 text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"
             >
               <Maximize2 size={14} />
             </button>
             <button
               onClick={() => setMonRefresh((n) => n + 1)}
               title="Reavaliar agora"
-              className="rounded-lg border border-[var(--border)] p-2 text-muted hover:text-white"
+              className="p-2 text-zinc-500 transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"
             >
               <RotateCw size={14} />
             </button>
@@ -1255,8 +1213,8 @@ export function Radar() {
         </div>
       )}
       {tab === 'TREND' && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5">
-          <span className="text-sm font-bold">Indicadores</span>
+        <div className="flex flex-wrap items-center gap-3 border-y border-[var(--border)] py-2.5">
+          <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Indicadores</span>
           <span className="ml-auto flex flex-wrap items-center gap-2">
             <Seg
               options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
@@ -1266,7 +1224,7 @@ export function Radar() {
             <select
               value={selCrypto}
               onChange={(e) => { const v = e.target.value; setSelCrypto(v); setQ(v); }}
-              className="min-w-56 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-sm"
+              className="min-w-56 border border-[var(--border)] bg-[var(--surface-1)] px-3 py-1.5 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
               title="Filtra a tabela para a crypto escolhida"
             >
               <option value="">Selecione uma crypto</option>
@@ -1276,22 +1234,22 @@ export function Radar() {
               onClick={() => { if (selCrypto) toggleFav(selCrypto); }}
               disabled={!selCrypto}
               title={selCrypto ? (favs.includes(selCrypto) ? `Remover ${selCrypto} dos favoritos` : `Favoritar ${selCrypto}`) : 'Escolha uma crypto primeiro'}
-              className={`rounded-lg border border-[var(--border)] p-2 ${!selCrypto ? 'opacity-40' : favs.includes(selCrypto) ? 'text-[var(--warn)]' : 'text-muted hover:text-white'}`}
+              className={`p-2 transition-colors duration-150 ease-out active:scale-[0.98] ${!selCrypto ? 'opacity-40' : favs.includes(selCrypto) ? 'text-amber-500' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
             >
-              <Star size={18} fill={selCrypto && favs.includes(selCrypto) ? 'currentColor' : 'none'} />
+              <Star size={14} fill={selCrypto && favs.includes(selCrypto) ? 'currentColor' : 'none'} />
             </button>
             <button
               onClick={() => setTrendExpanded((v) => !v)}
               title={trendExpanded ? 'Compactar tabela' : 'Expandir tabela'}
-              className="rounded-lg border border-[var(--border)] p-2 text-[var(--up)] hover:text-white"
+              className="p-2 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]"
             >
-              <Maximize2 size={16} />
+              <Maximize2 size={14} />
             </button>
           </span>
         </div>
       )}
       <div className="flex items-center gap-1 border-b border-[var(--border)]">
-        <button onClick={() => tabsRef.current?.scrollBy({ left: -320 })} title="Rolar abas" className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-muted hover:text-white"><ChevronLeft size={16} /></button>
+        <button onClick={() => tabsRef.current?.scrollBy({ left: -320 })} title="Rolar abas" className="shrink-0 p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]"><ChevronLeft size={16} /></button>
         <div ref={tabsRef} className="flex flex-1 gap-x-5 gap-y-1 overflow-x-auto">
         {TABS.map((t) => (
           <button
@@ -1300,47 +1258,49 @@ export function Radar() {
               setTab(t.k);
               if (t.k === 'SMA' || t.k === 'EMA') { setMaSearch(''); setMaModal(t.k); }
             }}
-            className={t.k === tab ? '-mb-px shrink-0 border-b-2 border-[var(--up)] pb-1.5 text-sm font-bold text-[var(--up)]' : 'shrink-0 pb-1.5 text-sm text-muted hover:text-white'}
+            className={t.k === tab ? '-mb-px shrink-0 border-b-2 border-[var(--brand)] pb-2 text-xs font-semibold text-[var(--brand)]' : 'shrink-0 pb-2 text-xs font-semibold text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}
           >
             {t.label}
           </button>
         ))}
         </div>
-        <button onClick={() => tabsRef.current?.scrollBy({ left: 320 })} title="Rolar abas" className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface)] p-1 text-muted hover:text-white"><ChevronRight size={16} /></button>
+        <button onClick={() => tabsRef.current?.scrollBy({ left: 320 })} title="Rolar abas" className="shrink-0 p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]"><ChevronRight size={16} /></button>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1" title="Quantas moedas por market cap entram em cada radar">
-          <Seg
-            options={[{ k: '100', label: 'Top 100' }, { k: '200', label: 'Top 200' }, { k: '300', label: 'Top 300' }, { k: 'all', label: 'Todas' }] as const}
-            value={topN == null ? 'all' : String(topN) as '100' | '200' | '300' | 'all'}
-            onChange={(v) => setTopN(v === 'all' ? null : Number(v))}
-          />
-        </span>
-        {(tab === 'STOCH' || tab === 'BB' || tab === 'SMA' || tab === 'EMA') && (
-          <span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1" title="Quantas moedas por market cap entram em cada radar">
             <Seg
-              options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
-              value={indTf}
-              onChange={(v) => setIndTf(v)}
+              options={[{ k: '100', label: 'Top 100' }, { k: '200', label: 'Top 200' }, { k: '300', label: 'Top 300' }, { k: 'all', label: 'Todas' }] as const}
+              value={topN == null ? 'all' : String(topN) as '100' | '200' | '300' | 'all'}
+              onChange={(v) => setTopN(v === 'all' ? null : Number(v))}
             />
           </span>
-        )}
+          {(tab === 'STOCH' || tab === 'BB' || tab === 'SMA' || tab === 'EMA') && (
+            <span>
+              <Seg
+                options={[{ k: '1h', label: '1 hora' }, { k: '4h', label: '4 horas' }, { k: '1d', label: '1 dia' }] as const}
+                value={indTf}
+                onChange={(v) => setIndTf(v)}
+              />
+            </span>
+          )}
+        </div>
+
       </div>
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar em todo o universo…" className="min-w-52 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm" />
+      <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--text-secondary)]">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar em todo o universo…" className="min-w-52 border border-[var(--border)] bg-[var(--surface-1)] px-3 py-1.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]" />
         {tab !== 'MON' && (
           <>
             <label className="flex items-center gap-1"><input type="checkbox" checked={onlyActive} disabled={showAll} onChange={(e) => setOnlyActive(e.target.checked)} /> Somente ativas (vol &gt; 0)</label>
             <label className="flex items-center gap-1"><input type="checkbox" checked={hideStables} disabled={showAll} onChange={(e) => setHideStables(e.target.checked)} /> Ocultar stablecoins</label>
-            <label className="flex items-center gap-1 font-semibold"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Mostrar literalmente todas</label>
+            <label className="flex items-center gap-1 font-semibold text-[var(--text-primary)]"><input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} /> Mostrar literalmente todas</label>
           </>
         )}
-        <button onClick={u.reload} className="rounded-lg border border-[var(--border)] px-2 py-1">Recarregar universo</button>
+        <button onClick={u.reload} className="px-2 py-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]">Recarregar universo</button>
         {tab === 'PAT' && (
           <button
             onClick={() => setPatListOpen(true)}
-            className="rounded-lg border border-[var(--border)] px-2 py-1 font-semibold"
-            style={patPatterns.length || patSentiment !== 'Todas' ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : undefined}
+            className={`px-2 py-1 font-semibold transition-colors duration-150 ease-out active:scale-[0.98] ${patPatterns.length || patSentiment !== 'Todas' ? 'text-cyan-300' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
             Filtrar{(patPatterns.length || patSentiment !== 'Todas') ? ' • ativo' : ''}
           </button>
@@ -1351,148 +1311,142 @@ export function Radar() {
               if (rsiFilter) setRsiDraft({ col: rsiFilter.col, op: rsiFilter.op, value: String(rsiFilter.value) });
               setRsiFilterOpen(true);
             }}
-            className="rounded-lg border border-[var(--border)] px-2 py-1 font-semibold"
-            style={rsiFilter ? { color: 'var(--accent)', borderColor: 'var(--accent)' } : undefined}
+            className={`px-2 py-1 font-semibold transition-colors duration-150 ease-out active:scale-[0.98] ${rsiFilter ? 'text-cyan-300' : 'text-zinc-400 hover:text-zinc-200'}`}
           >
             Filtrar{rsiFilter ? ' • ativo' : ''}
           </button>
         )}
       </div>
 
-      <Panel>
-        <PanelTitle
-          right={
-            <span className="text-xs normal-case">
+      <MSection
+        title={tab === 'MON' ? `Monitor — ${monFeed.length} alerta${monFeed.length === 1 ? '' : 's'}${monMode === 'realtime' ? ' (tempo real)' : ''}` : tab === 'PAT' ? `Padrões — ${patFeed.length} sinais` : `Crypto Radar — ${rows.length.toLocaleString('pt-BR')} após filtros`}
+        right={
+          <span className="text-xs normal-case tabular-nums text-zinc-500">
               {u.coins.length.toLocaleString('pt-BR')} moedas no universo
               {!u.done && u.coins.length > 0 && <span> · carregando universo: {u.loaded.toLocaleString('pt-BR')}</span>}
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
-              {u.rateLimited && <Badge tone="warn">rate limit — usando cache + backoff</Badge>}
+              {u.rateLimited && <span> · rate limit — usando cache + backoff</span>}
               {indNote}
               {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}</span>)}
             </span>
           }
         >
-          {tab === 'MON' ? `Monitor — ${monFeed.length} alerta${monFeed.length === 1 ? '' : 's'}${monMode === 'realtime' ? ' (tempo real)' : ''}` : tab === 'PAT' ? `Padrões — ${patFeed.length} sinais` : `Crypto Radar — ${rows.length.toLocaleString('pt-BR')} após filtros`}
-        </PanelTitle>
         {u.error && !u.coins.length && <ErrorBox message={u.error} onRetry={u.reload} />}
         {u.error && u.coins.length > 0 && (
-          <div className="mb-2 text-xs text-[var(--warn)]">
-            Atualização pausada ({u.error}) — exibindo cache. <button onClick={u.reload} className="underline">Tentar de novo</button>
+          <div className="mb-2 text-xs text-red-400">
+            Atualização pausada ({u.error}) — exibindo cache. <button onClick={u.reload} className="underline transition-colors duration-150 ease-out active:scale-[0.98]">Tentar de novo</button>
           </div>
         )}
         {!rows.length ? (
-          <Empty title="Nenhuma moeda encontrada" hint="Ajuste a busca ou desative os filtros." />
+          <MEmpty title="Nenhuma moeda encontrada" hint="Ajuste a busca ou desative os filtros." />
         ) : tab === 'MON' ? (
-          <div className={`${monExpanded ? 'max-h-[85vh]' : 'max-h-[62vh]'} space-y-1 overflow-auto py-1`}>
-            <div className="grid items-center gap-2 px-3 text-xs text-muted" style={{ gridTemplateColumns: monMode === 'realtime' ? '9rem minmax(10rem,30%) 1fr 4.5rem' : 'minmax(11rem,32%) 1fr 4.5rem' }}>
+          <div className={`${monExpanded ? 'max-h-[85vh]' : 'max-h-[62vh]'} divide-y divide-[var(--border)] overflow-auto py-1`}>
+            <div className="grid items-center gap-2 px-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]" style={{ gridTemplateColumns: monMode === 'realtime' ? '9rem minmax(10rem,30%) 1fr 4.5rem' : 'minmax(11rem,32%) 1fr 4.5rem' }}>
               {monMode === 'realtime' && <span>Data</span>}<span>Moeda</span><span>Descrição</span><span className="text-right">Ações</span>
             </div>
             {monFeed.length === 0 ? (
-              <Empty
+              <MEmpty
                 title={indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : monMode === 'realtime' ? 'Nada acontecendo agora' : 'Nenhum alerta ativo'}
-                hint="Ative filtros no funil ou crie o seu próprio no ☰."
+                hint="Ative filtros no funil ou crie o seu próprio filtro."
               />
             ) : (
               monFeed.slice(0, 200).map((e) => (
                 <div
                   key={`${e.filter.id}:${e.coin.symbol}`}
-                  className="grid items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-                  style={{ ...monTint(e.filter.color), gridTemplateColumns: monMode === 'realtime' ? '9rem minmax(10rem,30%) 1fr 4.5rem' : 'minmax(11rem,32%) 1fr 4.5rem' }}
+                  className="grid items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out hover:bg-white/[0.03]"
+                  style={{ gridTemplateColumns: monMode === 'realtime' ? '9rem minmax(10rem,30%) 1fr 4.5rem' : 'minmax(11rem,32%) 1fr 4.5rem' }}
                 >
                   {monMode === 'realtime' && (
-                    <span className="tabular text-xs text-muted">
+                    <span className="tabular-nums text-xs text-zinc-500">
                       {e.seen ? fmtDT(e.seen) : '—'}
                       {e.seen > 0 && <span> · {relTime(e.seen)}</span>}
                     </span>
                   )}
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className="shrink-0 text-base text-muted">{favs.includes(e.coin.symbol) ? '★' : '☆'}</button>
+                    <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className={`shrink-0 transition-colors duration-150 ease-out active:scale-[0.98] ${favs.includes(e.coin.symbol) ? 'text-amber-300' : 'text-zinc-600 hover:text-zinc-300'}`}><Star size={14} fill={favs.includes(e.coin.symbol) ? 'currentColor' : 'none'} /></button>
                     {coinIcon(e.coin)}
-                    <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-bold hover:underline">{e.coin.name}</Link>
+                    <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline">{e.coin.name}</Link>
                   </span>
                   <span className="flex min-w-0 items-center">
-                    <span
-                      className="mr-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
-                      style={{ background: `color-mix(in srgb, ${monVar(e.filter.color)} 30%, transparent)`, color: monVar(e.filter.color) }}
-                    >
+                    <span className="mr-2 inline-flex shrink-0 items-center justify-center text-[var(--text-muted)]">
                       {monIcon(e.filter.icon)}
                     </span>
                     <span className="min-w-0">
-                      <strong className="block truncate" style={{ color: monVar(e.filter.color) }}>{e.filter.name}</strong>
-                      {e.why && <span className="block truncate text-xs text-muted" title={e.why}>{e.why}</span>}
+                      <strong className="block truncate font-semibold text-[var(--text-primary)]">{e.filter.name}</strong>
+                      {e.why && <span className="block truncate text-xs text-[var(--text-muted)]" title={e.why}>{e.why}</span>}
                     </span>
                   </span>
-                  <span className="flex items-center justify-end gap-2 text-muted">
-                    <Link to={`/monitor?symbol=${e.coin.symbol}`} title="Abrir gráfico" className="hover:text-white"><BarChart3 size={15} /></Link>
-                    <span title={e.filter.description || e.filter.name} className="cursor-help hover:text-white"><Info size={15} /></span>
+                  <span className="flex items-center justify-end gap-2 text-zinc-500">
+                    <Link to={`/monitor?symbol=${e.coin.symbol}`} title="Abrir gráfico" className="transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"><BarChart3 size={14} /></Link>
+                    <span title={e.filter.description || e.filter.name} className="cursor-help transition-colors duration-150 ease-out hover:text-zinc-200"><Info size={14} /></span>
                   </span>
                 </div>
               ))
             )}
             {monFeed.length > 200 && (
-              <div className="py-1 text-center text-xs text-muted">Mostrando 200 de {monFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
+              <div className="py-1 text-center text-xs tabular-nums text-zinc-500">Mostrando 200 de {monFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
             )}
           </div>
         ) : tab === 'PAT' ? (
-          <div className="max-h-[62vh] space-y-1 overflow-auto py-1">
-            <div className="grid items-center gap-2 px-3 text-xs text-muted" style={{ gridTemplateColumns: '9rem minmax(10rem,26%) 7rem 8rem 1fr 4rem' }}>
-              <button onClick={() => setPatSort((s) => ({ k: 'time', d: s.k === 'time' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
-                Data|Hora {patSort.k === 'time' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+          <div className="max-h-[62vh] divide-y divide-[var(--border)] overflow-auto py-1">
+            <div className="grid items-center gap-2 px-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]" style={{ gridTemplateColumns: '9rem minmax(10rem,26%) 7rem 8rem 1fr 4rem' }}>
+              <button onClick={() => setPatSort((s) => ({ k: 'time', d: s.k === 'time' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left transition-colors duration-150 ease-out hover:text-zinc-300 active:scale-[0.98]">
+                Data|Hora {patSort.k === 'time' ? (patSort.d === -1 ? '▼' : '▲') : <span className="text-zinc-600">⇅</span>}
               </button>
               <span>Moeda</span>
-              <button onClick={() => setPatSort((s) => ({ k: 'sentiment', d: s.k === 'sentiment' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
-                Sentimento {patSort.k === 'sentiment' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              <button onClick={() => setPatSort((s) => ({ k: 'sentiment', d: s.k === 'sentiment' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left transition-colors duration-150 ease-out hover:text-zinc-300 active:scale-[0.98]">
+                Sentimento {patSort.k === 'sentiment' ? (patSort.d === -1 ? '▼' : '▲') : <span className="text-zinc-600">⇅</span>}
               </button>
-              <button onClick={() => setPatSort((s) => ({ k: 'stage', d: s.k === 'stage' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
-                Estágio {patSort.k === 'stage' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              <button onClick={() => setPatSort((s) => ({ k: 'stage', d: s.k === 'stage' ? ((s.d * -1) as 1 | -1) : -1 }))} className="inline-flex items-center gap-1 text-left transition-colors duration-150 ease-out hover:text-zinc-300 active:scale-[0.98]">
+                Estágio {patSort.k === 'stage' ? (patSort.d === -1 ? '▼' : '▲') : <span className="text-zinc-600">⇅</span>}
               </button>
-              <button onClick={() => setPatSort((s) => ({ k: 'pattern', d: s.k === 'pattern' ? ((s.d * -1) as 1 | -1) : 1 }))} className="inline-flex items-center gap-1 text-left font-semibold hover:text-[var(--accent)]">
-                Padrão Gráfico {patSort.k === 'pattern' ? (patSort.d === -1 ? '▼' : '▲') : <span className="opacity-50">⇅</span>}
+              <button onClick={() => setPatSort((s) => ({ k: 'pattern', d: s.k === 'pattern' ? ((s.d * -1) as 1 | -1) : 1 }))} className="inline-flex items-center gap-1 text-left transition-colors duration-150 ease-out hover:text-zinc-300 active:scale-[0.98]">
+                Padrão Gráfico {patSort.k === 'pattern' ? (patSort.d === -1 ? '▼' : '▲') : <span className="text-zinc-600">⇅</span>}
               </button>
               <span className="text-right">Análise</span>
             </div>
             {patFeed.length === 0 ? (
-              <Empty
+              <MEmpty
                 title={indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : 'Nenhum padrão no momento'}
                 hint="Ajuste os filtros no funil ou aguarde novas formações."
               />
             ) : (
               patFeed.slice(0, 200).map((e) => {
-                const tone = e.pat.sentiment === 'Bullish' ? 'var(--up)' : e.pat.sentiment === 'Bearish' ? 'var(--down)' : 'var(--muted)';
-                const stTone = e.pat.stage === 'Rompimento' ? 'var(--down)' : 'var(--warn)';
+                const tone = e.pat.sentiment === 'Bullish' ? 'text-emerald-400' : e.pat.sentiment === 'Bearish' ? 'text-red-400' : 'text-zinc-400';
+                const stTone = e.pat.stage === 'Rompimento' ? 'text-red-400' : 'text-zinc-400';
                 return (
                   <div
                     key={`${e.pat.pattern}:${e.coin.symbol}`}
-                    className="grid items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--surface-2)]"
+                    className="grid items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]"
                     style={{ gridTemplateColumns: '9rem minmax(10rem,26%) 7rem 8rem 1fr 4rem' }}
                   >
-                    <span className="tabular text-xs text-muted">{e.seen ? fmtDT(e.seen) : '—'}</span>
+                    <span className="tabular-nums text-xs text-[var(--text-muted)]">{e.seen ? fmtDT(e.seen) : '—'}</span>
                     <span className="flex min-w-0 items-center gap-1.5">
-                      <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className="shrink-0 text-base text-muted">{favs.includes(e.coin.symbol) ? '★' : '☆'}</button>
+                      <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className={`shrink-0 transition-colors duration-150 ease-out active:scale-[0.98] ${favs.includes(e.coin.symbol) ? 'text-amber-500' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}><Star size={14} fill={favs.includes(e.coin.symbol) ? 'currentColor' : 'none'} /></button>
                       {coinIcon(e.coin)}
-                      <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-bold hover:underline">{e.coin.name}</Link>
+                      <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline">{e.coin.name}</Link>
                     </span>
                     <span>
-                      <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: `color-mix(in srgb, ${tone} 18%, transparent)`, color: tone }}>
+                      <span className={`text-xs font-semibold ${tone}`}>
                         {e.pat.sentiment === 'Bullish' ? '▲ Bullish' : e.pat.sentiment === 'Bearish' ? '▼ Bearish' : '● Neutro'}
                       </span>
                     </span>
-                    <span className="text-xs font-semibold" style={{ color: stTone }}>{e.pat.stage}</span>
-                    <span className="truncate font-semibold" title={e.pat.detail}>{e.pat.pattern}</span>
-                    <span className="flex items-center justify-end gap-2 text-muted">
-                      <Link to={`/monitor?symbol=${e.coin.symbol}`} title={e.pat.detail} className="hover:text-white"><BarChart3 size={15} /></Link>
+                    <span className={`text-xs font-semibold ${stTone}`}>{e.pat.stage}</span>
+                    <span className="truncate font-semibold text-zinc-200" title={e.pat.detail}>{e.pat.pattern}</span>
+                    <span className="flex items-center justify-end gap-2 text-zinc-500">
+                      <Link to={`/monitor?symbol=${e.coin.symbol}`} title={e.pat.detail} className="transition-colors duration-150 ease-out hover:text-zinc-200 active:scale-[0.98]"><BarChart3 size={14} /></Link>
                     </span>
                   </div>
                 );
               })
             )}
             {patFeed.length > 200 && (
-              <div className="py-1 text-center text-xs text-muted">Mostrando 200 de {patFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
+              <div className="py-1 text-center text-xs tabular-nums text-zinc-500">Mostrando 200 de {patFeed.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
             )}
           </div>
         ) : (
           <>
-            <div className={tab === 'TREND' ? 'grid items-center gap-0 rounded-md bg-[var(--surface-2)] px-2 py-1 text-xs text-muted' : 'grid items-center gap-1 px-2 text-xs text-muted'} style={{ gridTemplateColumns: gridCols }}>
+            <div className="grid items-center gap-1 px-2 text-xs font-semibold uppercase tracking-wider text-zinc-500" style={{ gridTemplateColumns: gridCols }}>
               {cols[tab].map((c, i) => <span key={i} className={tab === 'TREND' ? 'px-1' : undefined}>{c.h}</span>)}
             </div>
             <div
@@ -1512,7 +1466,7 @@ export function Radar() {
                     <div
                       key={d.id}
                       style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: `${v.size}px`, transform: `translateY(${v.start}px)`, gridTemplateColumns: gridCols }}
-                      className="grid items-center gap-1 border-t border-[var(--border)] px-2 text-sm hover:bg-[var(--surface-2)]"
+                      className="grid items-center gap-1 border-t border-[var(--border)] px-2 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]"
                     >
                       {renderRow(d, v.index)}
                     </div>
@@ -1521,43 +1475,43 @@ export function Radar() {
               </div>
             </div>
             {tab !== 'RSI' && !IND_TABS.includes(tab) && rows.length > shown.length && (
-              <div className="py-1 text-center text-xs text-muted">Mostrando {shown.length} de {rows.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
+              <div className="py-1 text-center text-xs tabular-nums text-[var(--text-muted)]">Mostrando {shown.length} de {rows.length.toLocaleString('pt-BR')} — use a busca para refinar.</div>
             )}
           </>
         )}
-      </Panel>
+      </MSection>
       {rsiFilterOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setRsiFilterOpen(false)}>
-          <div className="w-full max-w-sm rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
-            <PanelTitle>Filtros</PanelTitle>
-            <label className="mt-3 block text-xs text-muted">Coluna</label>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setRsiFilterOpen(false)}>
+          <div className="w-full max-w-sm border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Filtros</h3>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Coluna</label>
             <select
               value={rsiDraft.col}
               onChange={(e) => setRsiDraft((d) => ({ ...d, col: e.target.value as RsiCol }))}
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
             >
               {RSI_COLS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
             </select>
-            <label className="mt-3 block text-xs text-muted">Operador</label>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Operador</label>
             <select
               value={rsiDraft.op}
               onChange={(e) => setRsiDraft((d) => ({ ...d, op: e.target.value as RsiOp }))}
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
             >
               {rsiOps.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
             </select>
-            <label className="mt-3 block text-xs text-muted">Valor</label>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Valor</label>
             <input
               value={rsiDraft.value}
               onChange={(e) => setRsiDraft((d) => ({ ...d, value: e.target.value }))}
               inputMode="decimal"
               placeholder="Ex.: 70"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm tabular"
+              className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm tabular-nums text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]"
             />
             <div className="mt-4 flex gap-2">
               <button
                 onClick={() => { setRsiFilter(null); setRsiFilterOpen(false); }}
-                className="flex-1 rounded-lg border border-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent)]"
+                className="flex-1 border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]"
               >
                 Limpar
               </button>
@@ -1567,7 +1521,7 @@ export function Radar() {
                   if (!Number.isNaN(v)) setRsiFilter({ col: rsiDraft.col, op: rsiDraft.op, value: v });
                   setRsiFilterOpen(false);
                 }}
-                className="flex-1 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-bold text-black"
+                className="flex-1 bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white transition-opacity duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
               >
                 Aplicar
               </button>
@@ -1576,19 +1530,19 @@ export function Radar() {
         </div>
       )}
       {maModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setMaModal(null)}>
-          <div className="max-h-[80vh] w-full max-w-sm overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMaModal(null)}>
+          <div className="max-h-[80vh] w-full max-w-sm overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <PanelTitle>Selecione uma opção</PanelTitle>
-              <button onClick={() => setMaModal(null)} className="text-xl leading-none text-muted" title="Fechar">×</button>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Selecione uma opção</h3>
+              <button onClick={() => setMaModal(null)} className="p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]" title="Fechar"><X size={14} /></button>
             </div>
             <input
               value={maSearch}
               onChange={(e) => setMaSearch(e.target.value)}
               placeholder={maModal}
-              className="mt-3 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              className="mt-3 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]"
             />
-            <div className="mt-2 space-y-2">
+            <div className="mt-2 divide-y divide-[var(--border)]">
               {[
                 { id: 'price' as MaFast, label: `Price Cross ${maModal}` },
                 ...MA_FASTS.map((f) => ({ id: f as MaFast, label: `${maModal} ${f} cross` })),
@@ -1604,14 +1558,13 @@ export function Radar() {
                         else setEmaCfg(o.id);
                         setMaModal(null);
                       }}
-                      className={`flex w-full items-center justify-between rounded-lg border px-3 py-2.5 text-sm font-semibold ${active ? 'border-[var(--accent)]' : 'border-[var(--border)]'}`}
+                      className={`flex w-full items-center justify-between px-3 py-2.5 text-sm transition-colors duration-150 ease-out active:scale-[0.98] ${active ? 'font-semibold text-[var(--brand)]' : 'font-normal text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}
                     >
                       {o.label}
                       <span
-                        className="flex h-5 w-5 items-center justify-center rounded-md border text-xs font-bold"
-                        style={active ? { background: 'var(--up)', borderColor: 'var(--up)', color: '#000' } : { borderColor: 'var(--border)', color: 'transparent' }}
+                        className={`flex h-5 w-5 items-center justify-center border ${active ? 'border-[var(--bull)] bg-[var(--bull)] text-white' : 'border-[var(--border)] text-transparent'}`}
                       >
-                        ✓
+                        <Check size={12} />
                       </span>
                     </button>
                   );
@@ -1621,122 +1574,122 @@ export function Radar() {
         </div>
       )}
       {monListOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setMonListOpen(false)}>
-          <div className="max-h-[80vh] w-full max-w-md overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMonListOpen(false)}>
+          <div className="max-h-[80vh] w-full max-w-md overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <PanelTitle>Filtros do Monitor</PanelTitle>
-              <button onClick={() => setMonListOpen(false)} className="text-xl leading-none text-muted" title="Fechar">×</button>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Filtros do Monitor</h3>
+              <button onClick={() => setMonListOpen(false)} className="p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]" title="Fechar"><X size={14} /></button>
             </div>
-            <div className="mt-1 text-xs text-muted">Prontos</div>
-            <div className="mt-1 space-y-1.5">
+            <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Prontos</div>
+            <div className="mt-1 divide-y divide-[var(--border)]">
               {PRESET_FILTERS.map((f) => {
                 const on = !monDisabled.includes(f.id);
                 return (
-                  <label key={f.id} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                  <label key={f.id} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
                     <input type="checkbox" checked={on} onChange={() => toggleMonFilter(f.id)} />
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)`, color: monVar(f.color) }}>{monIcon(f.icon)}</span>
-                    <span className="flex-1"><strong>{f.name}</strong><span className="block text-xs text-muted">{f.description}</span></span>
+                    <span className="inline-flex h-6 w-6 items-center justify-center text-[var(--text-secondary)]">{monIcon(f.icon)}</span>
+                    <span className="flex-1"><strong className="font-semibold text-[var(--text-primary)]">{f.name}</strong><span className="block text-xs text-[var(--text-muted)]">{f.description}</span></span>
                   </label>
                 );
               })}
             </div>
-            <div className="mt-3 text-xs text-muted">Meus filtros</div>
-            <div className="mt-1 space-y-1.5">
-              {monFiltersCustom.length === 0 && <div className="text-xs text-muted">Nenhum ainda. Crie o seu abaixo.</div>}
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Meus filtros</div>
+            <div className="mt-1 divide-y divide-[var(--border)]">
+              {monFiltersCustom.length === 0 && <div className="text-xs text-[var(--text-muted)]">Nenhum ainda. Crie o seu abaixo.</div>}
               {monFiltersCustom.map((f) => {
                 const on = !monDisabled.includes(f.id);
                 return (
-                  <div key={f.id} className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                  <div key={f.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                     <input type="checkbox" checked={on} onChange={() => toggleMonFilter(f.id)} title="Ativar" />
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full" style={{ background: `color-mix(in srgb, ${monVar(f.color)} 25%, transparent)`, color: monVar(f.color) }}>{monIcon(f.icon)}</span>
-                    <span className="flex-1"><strong>{f.name}</strong><span className="block text-xs text-muted">{f.conditions.length} condição(ões)</span></span>
-                    <button onClick={() => removeMonFilter(f.id)} className="text-xs text-muted hover:text-[var(--down)]" title="Excluir">✕</button>
+                    <span className="inline-flex h-6 w-6 items-center justify-center text-[var(--text-secondary)]">{monIcon(f.icon)}</span>
+                    <span className="flex-1"><strong className="font-semibold text-[var(--text-primary)]">{f.name}</strong><span className="block text-xs text-[var(--text-muted)]">{f.conditions.length} condição(ões)</span></span>
+                    <button onClick={() => removeMonFilter(f.id)} className="p-1 text-xs text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--bear)] active:scale-[0.98]" title="Excluir"><X size={14} /></button>
                   </div>
                 );
               })}
             </div>
             <button
               onClick={() => { setMonDraft(blankDraft()); setMonListOpen(false); setMonBuilderOpen(true); }}
-              className="mt-3 w-full rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-bold text-black"
+              className="mt-3 flex w-full items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold text-[var(--brand)] transition-colors duration-150 ease-out hover:underline active:scale-[0.98]"
             >
-              ＋ Novo filtro
+              <Plus size={14} /> Novo filtro
             </button>
           </div>
         </div>
       )}
       {monBuilderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setMonBuilderOpen(false)}>
-          <div className="max-h-[85vh] w-full max-w-lg overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMonBuilderOpen(false)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <PanelTitle>Novo filtro</PanelTitle>
-              <button onClick={() => setMonBuilderOpen(false)} className="text-xl leading-none text-muted" title="Fechar">×</button>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Novo filtro</h3>
+              <button onClick={() => setMonBuilderOpen(false)} className="p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]" title="Fechar"><X size={14} /></button>
             </div>
-            <label className="mt-3 block text-xs text-muted">Nome</label>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Nome</label>
             <input
               value={monDraft.name}
               onChange={(e) => setMonDraft((d) => ({ ...d, name: e.target.value }))}
               placeholder="Ex.: Pullback em alta"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]"
             />
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-xs text-muted">Ícone</label>
-                <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Ícone</label>
+                <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                   {MON_ICONS.map((i) => <option key={i.k} value={i.k}>{i.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-muted">Cor</label>
-                <select value={monDraft.color} onChange={(e) => setMonDraft((d) => ({ ...d, color: e.target.value as MonColor }))} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Cor</label>
+                <select value={monDraft.color} onChange={(e) => setMonDraft((d) => ({ ...d, color: e.target.value as MonColor }))} className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                   {MON_COLORS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
                 </select>
               </div>
             </div>
-            <label className="mt-3 block text-xs text-muted">Descrição</label>
+            <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Descrição</label>
             <input
               value={monDraft.description}
               onChange={(e) => setMonDraft((d) => ({ ...d, description: e.target.value }))}
               placeholder="O que este filtro detecta"
-              className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm"
+              className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]"
             />
-            <div className="mt-3 text-xs font-semibold">Condições (todas precisam passar)</div>
-            <div className="mt-1 space-y-2">
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Condições (todas precisam passar)</div>
+            <div className="mt-1 divide-y divide-[var(--border)]">
               {monDraft.conditions.map((c, i) => (
-                <div key={i} className="rounded-lg border border-[var(--border)] p-2">
+                <div key={i} className="py-2">
                   <div className="grid grid-cols-2 gap-2">
                     <select value={c.indicator} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       const indicator = e.target.value as MonIndicator;
                       conditions[i] = { indicator, tf: '1d', field: MON_FIELDS[indicator][0].k, op: 'lte', value: 30 };
                       return { ...d, conditions };
-                    })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                    })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                       {MON_INDICATORS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                     <select value={c.tf} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       conditions[i] = { ...conditions[i], tf: e.target.value as MonTf };
                       return { ...d, conditions };
-                    })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                    })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                       {(c.indicator === 'trend' ? MON_TFS.filter((o) => o.k !== '1w') : MON_TFS).map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                     <select value={c.field} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       conditions[i] = { ...conditions[i], field: e.target.value };
                       return { ...d, conditions };
-                    })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                    })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                       {MON_FIELDS[c.indicator].map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                     {c.indicator === 'trend' && (
-                      <div className="-mt-1 text-[11px] text-muted">Tendência só vale em 1h/4h/1d (semanal não tem consenso).</div>
+                      <div className="-mt-1 text-[11px] text-[var(--text-muted)]">Tendência só vale em 1h/4h/1d (semanal não tem consenso).</div>
                     )}
                     {MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint && (
-                      <div className="-mt-1 text-[11px] text-muted">{MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint}</div>
+                      <div className="-mt-1 text-[11px] text-[var(--text-muted)]">{MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint}</div>
                     )}
                     <select value={c.op} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       conditions[i] = { ...conditions[i], op: e.target.value as MonOp };
                       return { ...d, conditions };
-                    })} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                    })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                       {MON_OPS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                   </div>
@@ -1746,7 +1699,7 @@ export function Radar() {
                         const conditions = [...d.conditions];
                         conditions[i] = { ...conditions[i], value: Number(e.target.value) };
                         return { ...d, conditions };
-                      })} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                      })} className="flex-1 border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                         {TREND_LEVEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                       </select>
                     ) : c.indicator === 'super' ? (
@@ -1754,7 +1707,7 @@ export function Radar() {
                         const conditions = [...d.conditions];
                         conditions[i] = { ...conditions[i], value: Number(e.target.value) };
                         return { ...d, conditions };
-                      })} className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs">
+                      })} className="flex-1 border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                         <option value={1}>Alta</option>
                         <option value={0}>Baixa</option>
                       </select>
@@ -1768,15 +1721,15 @@ export function Radar() {
                           return { ...d, conditions };
                         })}
                         inputMode="decimal"
-                        className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs tabular"
+                        className="flex-1 border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs tabular-nums text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
                       />
                     )}
                     <button
                       onClick={() => setMonDraft((d) => ({ ...d, conditions: d.conditions.filter((_, j) => j !== i) }))}
-                      className="rounded-lg border border-[var(--border)] px-2 text-xs text-muted hover:text-[var(--down)]"
+                      className="px-2 text-xs text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--bear)] active:scale-[0.98]"
                       title="Remover condição"
                     >
-                      ✕
+                      <X size={14} />
                     </button>
                   </div>
                 </div>
@@ -1784,12 +1737,12 @@ export function Radar() {
             </div>
             <button
               onClick={() => setMonDraft((d) => ({ ...d, conditions: [...d.conditions, { indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 }] }))}
-              className="mt-2 w-full rounded-lg border border-dashed border-[var(--border)] px-3 py-2 text-xs font-semibold text-muted"
+              className="mt-2 flex w-full items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-[var(--brand)] transition-colors duration-150 ease-out hover:underline active:scale-[0.98]"
             >
-              ＋ Adicionar condição (E)
+              <Plus size={14} /> Adicionar condição (E)
             </button>
             <div className="mt-3 flex gap-2">
-              <button onClick={() => setMonBuilderOpen(false)} className="flex-1 rounded-lg border border-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent)]">
+              <button onClick={() => setMonBuilderOpen(false)} className="flex-1 border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]">
                 Cancelar
               </button>
               <button
@@ -1798,7 +1751,7 @@ export function Radar() {
                   addMonFilter({ id: `custom-${Date.now()}`, preset: false, ...monDraft, name: monDraft.name.trim(), description: monDraft.description.trim() });
                   setMonBuilderOpen(false);
                 }}
-                className="flex-1 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-bold text-black"
+                className="flex-1 bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white transition-opacity duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
               >
                 Salvar filtro
               </button>
@@ -1807,46 +1760,46 @@ export function Radar() {
         </div>
       )}
       {patListOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPatListOpen(false)}>
-          <div className="max-h-[80vh] w-full max-w-sm overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setPatListOpen(false)}>
+          <div className="max-h-[80vh] w-full max-w-sm overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <PanelTitle>Filtros de padrões</PanelTitle>
-              <button onClick={() => setPatListOpen(false)} className="text-xl leading-none text-muted" title="Fechar">×</button>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Filtros de padrões</h3>
+              <button onClick={() => setPatListOpen(false)} className="p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]" title="Fechar"><X size={14} /></button>
             </div>
-            <div className="mt-1 text-xs text-muted">Sentimento</div>
-            <div className="mt-1 inline-flex items-center overflow-hidden rounded-md border border-[var(--border)]">
+            <div className="mt-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Sentimento</div>
+            <div className="mt-1 inline-flex items-center divide-x divide-[var(--border)] border border-[var(--border)]">
               {(['Todas', 'Bullish', 'Neutro', 'Bearish'] as const).map((s) => (
                 <button
                   key={s}
                   onClick={() => setPatSentiment(s)}
-                  className={patSentiment === s ? 'bg-[var(--accent)] px-2.5 py-1.5 text-xs font-bold text-black' : 'px-2.5 py-1.5 text-xs font-semibold text-muted hover:text-white'}
+                  className={patSentiment === s ? 'px-2.5 py-1.5 text-xs font-semibold text-[var(--brand)] bg-[var(--surface-2)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-2.5 py-1.5 text-xs font-semibold text-[var(--text-muted)] bg-[var(--surface-1)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}
                 >
                   {s}
                 </button>
               ))}
             </div>
-            <div className="mt-3 text-xs text-muted">Padrões (vazio = todos)</div>
-            <div className="mt-1 space-y-1.5">
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Padrões (vazio = todos)</div>
+            <div className="mt-1 divide-y divide-[var(--border)]">
               {[...new Set([...patMap.values()].flat().map((p) => p.pattern))].sort().map((name) => {
                 const on = patPatterns.includes(name);
                 const count = [...patMap.values()].flat().filter((p) => p.pattern === name).length;
                 return (
-                  <label key={name} className="flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                  <label key={name} className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm">
                     <input
                       type="checkbox"
                       checked={on}
                       onChange={() => setPatPatterns((prev) => (on ? prev.filter((x) => x !== name) : [...prev, name]))}
                     />
-                    <span className="flex-1 font-semibold">{name}</span>
-                    <span className="text-xs text-muted tabular">{count}</span>
+                    <span className="flex-1 font-semibold text-[var(--text-primary)]">{name}</span>
+                    <span className="text-xs tabular-nums text-[var(--text-muted)]">{count}</span>
                   </label>
                 );
               })}
-              {patMap.size === 0 && <div className="text-xs text-muted">Abra a aba para carregar os padrões do top-100.</div>}
+              {patMap.size === 0 && <div className="text-xs text-[var(--text-muted)]">Abra a aba para carregar os padrões do top-100.</div>}
             </div>
             <button
               onClick={() => { setPatPatterns([]); setPatSentiment('Todas'); }}
-              className="mt-3 w-full rounded-lg border border-[var(--accent)] px-3 py-2 text-sm font-semibold text-[var(--accent)]"
+              className="mt-3 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-semibold text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]"
             >
               Limpar
             </button>

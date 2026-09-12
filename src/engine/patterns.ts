@@ -1,5 +1,6 @@
 import type { Candle } from '@/types';
 import { calcRSI } from '@/engine/indicators';
+import { verifyWedge, type WedgeKind } from '@/engine/wedges';
 
 export type PatternStage = 'Emergente' | 'Rompimento' | 'Confirmado';
 export type PatternSentiment = 'Bullish' | 'Bearish' | 'Neutro';
@@ -139,6 +140,104 @@ export function detectPatterns(candles: Candle[]): DetectedPattern[] {
     });
   }
 
+  // Canal de Baixa / Alta: regressão inclinada + preço do lado fraco
+  if (n >= 30) {
+    const w = closes.slice(-30);
+    const m = w.length;
+    const mx = (m - 1) / 2;
+    const my = w.reduce((s, v) => s + v, 0) / m;
+    const den = w.reduce((s, _, i) => s + (i - mx) ** 2, 0);
+    const slope = den ? w.reduce((s, v, i) => s + (i - mx) * (v - my), 0) / den : 0;
+    const slopePct = (slope * m) / (my || 1) * 100;
+    const sma20 = sma(20, closes);
+    if (slopePct < -4 && sma20 != null && last < sma20) {
+      out.push({
+        pattern: 'Canal de Baixa',
+        stage: 'Emergente',
+        sentiment: 'Bearish',
+        confidence: 58,
+        detail: `Declive de ${slopePct.toFixed(1)}% em 30 barras, preço abaixo da SMA20`,
+      });
+    } else if (slopePct > 4 && sma20 != null && last > sma20) {
+      out.push({
+        pattern: 'Canal de Alta',
+        stage: 'Emergente',
+        sentiment: 'Bullish',
+        confidence: 58,
+        detail: `Rampa de +${slopePct.toFixed(1)}% em 30 barras, preço acima da SMA20`,
+      });
+    }
+  }
+
+  // Cunhas VERIFICADAS (selo binário 7/7, sem "meia cunha"): só vela fechada —
+  // a série chega com o candle em formação, que é descartado aqui.
+  const closedCloses = closes.slice(0, -1);
+  const closedVols = candles.slice(0, -1).map((c) => c.volume);
+  for (const kind of ['desc', 'asc'] as WedgeKind[]) {
+    let res;
+    try {
+      res = verifyWedge(closedCloses, closedVols, kind);
+    } catch {
+      continue;
+    }
+    if (!res.verified || res.state === 'invalidated') continue; // selo revogado: fora do feed
+    const isDesc = kind === 'desc';
+    out.push({
+      pattern: isDesc ? 'Cunha Descendente Verificada' : 'Cunha Ascendente Verificada',
+      stage: res.state === 'confirmed' ? 'Confirmado' : 'Emergente',
+      sentiment: isDesc ? 'Bullish' : 'Bearish',
+      // confidence aqui é só rank (verificação já foi sim/não nas 7 portas)
+      confidence: 70,
+      detail: `Geometria verificada 7/7 · ${res.state === 'confirmed' ? 'rompida' : 'formando'} · ápice ~${Math.max(1, Math.round(res.apexBars ?? 0))} velas · qualidade ${res.quality}`,
+    });
+  }
+
+  // Níveis: mínima/máxima de 20 (excluindo a barra atual)
+  const sup20 = Math.min(...closes.slice(-21, -1));
+  const res20 = Math.max(...closes.slice(-21, -1));
+  const distSup = ((last - sup20) / last) * 100;
+  const distRes = ((res20 - last) / last) * 100;
+
+  // Sobrevendido no Suporte / Sobrecomprado na Resistência
+  if (rsi != null && rsi <= 30 && distSup >= 0 && distSup <= 2) {
+    out.push({
+      pattern: 'Sobrevendido no Suporte',
+      stage: 'Emergente',
+      sentiment: 'Bullish',
+      confidence: 64,
+      detail: `RSI ${rsi.toFixed(1)} a ${distSup.toFixed(1)}% do suporte de 20 (${sup20.toFixed(2)})`,
+    });
+  }
+  if (rsi != null && rsi >= 70 && distRes >= 0 && distRes <= 2) {
+    out.push({
+      pattern: 'Sobrecomprado na Resistência',
+      stage: 'Emergente',
+      sentiment: 'Bearish',
+      confidence: 64,
+      detail: `RSI ${rsi.toFixed(1)} a ${distRes.toFixed(1)}% da resistência de 20 (${res20.toFixed(2)})`,
+    });
+  }
+
+  // Aproximando-se do Suporte / Resistência (observação, sem exaustão)
+  if (distSup > 2 && distSup <= 5) {
+    out.push({
+      pattern: 'Aproximando-se do Suporte',
+      stage: 'Emergente',
+      sentiment: 'Neutro',
+      confidence: 52,
+      detail: `A ${distSup.toFixed(1)}% do suporte de 20 (${sup20.toFixed(2)})`,
+    });
+  }
+  if (distRes > 2 && distRes <= 5) {
+    out.push({
+      pattern: 'Aproximando-se da Resistência',
+      stage: 'Emergente',
+      sentiment: 'Neutro',
+      confidence: 52,
+      detail: `A ${distRes.toFixed(1)}% da resistência de 20 (${res20.toFixed(2)})`,
+    });
+  }
+
   // Sobrecompra no RSI
   if (rsi != null && rsi >= 70) {
     out.push({
@@ -159,5 +258,71 @@ export function detectPatterns(candles: Candle[]): DetectedPattern[] {
     });
   }
 
+  // Polaridade: nível rompido que troca de lado (reteste com defesa/rejeição).
+  // Nível antigo = extremas de 20 barras terminando 5 barras atrás (fora do ruído
+  // recente); rompimento = fechamento além dele nos últimos 15; reteste = último
+  // fechamento colado (±1,5%) e do lado certo. Pavio atravessando e fechando de
+  // volta = defesa confirmada.
+  if (closes.length >= 45) {
+    const highs = candles.map((c) => c.high).filter((v) => v > 0);
+    const lows = candles.map((c) => c.low).filter((v) => v > 0);
+    if (highs.length >= 45 && lows.length >= 45) {
+      const oldHighs = highs.slice(-25, -5);
+      const oldLows = lows.slice(-25, -5);
+      const rOld = Math.max(...oldHighs);
+      const sOld = Math.min(...oldLows);
+      const recentCloses = closes.slice(-15);
+      const brokeUp = recentCloses.some((c) => c > rOld);
+      const brokeDown = recentCloses.some((c) => c < sOld);
+      const rangePct = ((rOld - sOld) / last) * 100;
+      if (rangePct >= 2 && rOld > 0 && sOld > 0) {
+        const distROld = ((last - rOld) / last) * 100; // ≥0 segura acima
+        if (brokeUp && distROld >= 0 && distROld <= 1.5) {
+          const defended = (candles[candles.length - 1]?.low ?? last) < rOld;
+          out.push({
+            pattern: 'Resistência virou Suporte',
+            stage: defended ? 'Confirmado' : 'Emergente',
+            sentiment: 'Bullish',
+            confidence: defended ? 68 : 63,
+            detail: `Rompeu ${rOld.toFixed(2)} e segura acima a ${distROld.toFixed(1)}%${defended ? ' (pavio defendeu)' : ''}`,
+          });
+        }
+        const distSOld = ((sOld - last) / last) * 100; // ≥0 rejeita abaixo
+        if (brokeDown && distSOld >= 0 && distSOld <= 1.5) {
+          const rejected = (candles[candles.length - 1]?.high ?? last) > sOld;
+          out.push({
+            pattern: 'Suporte virou Resistência',
+            stage: rejected ? 'Confirmado' : 'Emergente',
+            sentiment: 'Bearish',
+            confidence: rejected ? 68 : 63,
+            detail: `Perdeu ${sOld.toFixed(2)} e rejeita abaixo a ${distSOld.toFixed(1)}%${rejected ? ' (pavio rejeitou)' : ''}`,
+          });
+        }
+      }
+    }
+  }
+
   return out.sort((x, y) => y.confidence - x.confidence).slice(0, 4);
+}
+
+// ---- firstSeen (quando cada padrão acendeu pela 1ª vez) ----
+const PAT_FS_KEY = 'cc.patterns.firstSeen';
+export function loadPatSeen(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(PAT_FS_KEY);
+    const j = raw ? JSON.parse(raw) as Record<string, number> : {};
+    return j && typeof j === 'object' ? j : {};
+  } catch {
+    return {};
+  }
+}
+export function savePatSeen(m: Record<string, number>): void {
+  try {
+    const keys = Object.keys(m);
+    const trimmed: Record<string, number> = {};
+    for (const k of keys.slice(-500)) trimmed[k] = m[k];
+    localStorage.setItem(PAT_FS_KEY, JSON.stringify(trimmed));
+  } catch {
+    /* armazenamento cheio */
+  }
 }

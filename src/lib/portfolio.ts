@@ -1,6 +1,7 @@
 export type OpSide = 'buy' | 'sell';
 export type AssetKind = 'crypto' | 'stock';
 import type { Conviction } from '@/engine/ranking';
+import { canonicalSymbol } from '@/lib/symbols';
 
 export interface Wallet {
   id: string;
@@ -114,17 +115,20 @@ export interface TierTradeStats {
  */
 export function statsByEntryTier(ops: Operation[]): { byTier: Record<string, TierTradeStats>; closedTrades: number } {
   const byTier: Record<string, TierTradeStats> = {};
+  // Agrupa pelo símbolo canônico: BTC, BTCUSDT e BTC-USD são o mesmo ativo.
+  const keyOf = (s: string) => canonicalSymbol(s);
   const lots = new Map<string, { qty: number; price: number; tier: string }[]>();
   const bucket = (t: string): TierTradeStats => (byTier[t] ??= { trades: 0, wins: 0, pnl: 0 });
   let closedTrades = 0;
   for (const o of [...ops].sort((a, b) => a.date.localeCompare(b.date))) {
     if (o.quantity <= 0 || o.price < 0) continue;
+    const key = keyOf(o.symbol);
     if (o.side === 'buy') {
-      const q = lots.get(o.symbol) ?? [];
+      const q = lots.get(key) ?? [];
       q.push({ qty: o.quantity, price: o.price, tier: o.entryTier ?? 'SEM_TAG' });
-      lots.set(o.symbol, q);
+      lots.set(key, q);
     } else {
-      const q = lots.get(o.symbol) ?? [];
+      const q = lots.get(key) ?? [];
       const held = q.reduce((s, l) => s + l.qty, 0);
       let left = Math.min(o.quantity, held);
       if (!(left > 0)) continue;

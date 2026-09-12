@@ -98,6 +98,24 @@ describe('pivos', () => {
     expect(pivotZone(105, p)).toContain('R1');
     expect(pivotZone(95, p)).toContain('S1');
   });
+  it('aba S/R: 5 diários fechados geram S3<S2<S1<R1<R2<R3 em torno do preço', () => {
+    // 10 diários sintéticos em alta leve (último em formação e descartado)
+    const daily = Array.from({ length: 10 }, (_, i) => ({
+      high: 100 + i * 2 + 1, low: 100 + i * 2 - 1, close: 100 + i * 2, time: i,
+    }));
+    const base = aggregateClosed(daily, 5);
+    expect(base).not.toBeNull();
+    expect(base!.sessions).toBe(5);
+    const p = floorPivots(base!.high, base!.low, base!.close);
+    expect(p.s3).toBeLessThan(p.s2);
+    expect(p.s2).toBeLessThan(p.s1);
+    expect(p.s1).toBeLessThan(p.r1);
+    expect(p.r1).toBeLessThan(p.r2);
+    expect(p.r2).toBeLessThan(p.r3);
+    // preço atual (último fechado 118) colado na faixa S1–R1
+    expect(p.s1).toBeLessThan(118);
+    expect(p.r1).toBeGreaterThan(110);
+  });
 });
 
 describe('scorePartial', () => {

@@ -10,6 +10,8 @@ export interface ScoreInput {
   btcChange7d?: number | null;
   change7d?: number | null;
   regime?: MarketRegime | null;
+  provider?: string | null;
+  fetchedAt?: number | null;
 }
 
 export function dataQuality(candles: Candle[]): number {
@@ -102,7 +104,7 @@ export function scoreAsset(input: ScoreInput): OpportunityScore {
   const signal: Signal = sig.signal;
   const stretchRaw =
     snap.sma20 != null && snap.sma20 > 0 && price > 0 ? ((price - snap.sma20) / snap.sma20) * 100 : null;
-  return { symbol, score, classification: classifyScore(score), confidence, dataQuality: dq, timeframeAlignment, signal, breakdown, why, risks, plan: buildPlan(candles, signal, snap.atr ?? null), stretchRaw };
+  return { symbol, score, classification: classifyScore(score), confidence, dataQuality: dq, timeframeAlignment, signal, breakdown, why, risks, plan: buildPlan(candles, signal, snap.atr ?? null), stretchRaw, provider: input.provider ?? null, fetchedAt: input.fetchedAt ?? null, scoredAt: Date.now(), confidenceBasis: 'heuristic-v1' };
 }
 
 export function interpret(symbol: string, tf: string, o: OpportunityScore, regime: MarketRegime | null): string {
@@ -113,6 +115,6 @@ export function interpret(symbol: string, tf: string, o: OpportunityScore, regim
     (o.why.length ? `Pontos de suporte: ${o.why.join('; ')}. ` : '') +
     (o.risks.length ? `Pontos de atenção: ${o.risks.join('; ')}. ` : '') +
     (regime ? `Contexto: Market Regime ${regime.label} (confiança ${regime.confidence}%). ` : '') +
-    `Leitura probabilística, não garantia: aguardar confirmação por preço e volume antes de qualquer decisão.`
+    `Leitura técnica, não garantia nem probabilidade: aguardar confirmação por preço e volume antes de qualquer decisão.`
   );
 }

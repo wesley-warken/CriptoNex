@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Panel, PanelTitle } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
 import { positionSize, riskReward } from '@/engine/risk';
 
 const LESSONS: Record<string, { conceito: string; interpretacao: string; exemplo: string; limitacoes: string }> = {
@@ -16,23 +16,26 @@ export function Training() {
   const [risk, setRisk] = useState('200');
   const L = LESSONS[tab];
   return (
-    <div className="space-y-3">
-      <div className="flex gap-1">{Object.keys(LESSONS).map((k) => <button key={k} onClick={() => setTab(k)} className={k === tab ? 'rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-bold text-black' : 'rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-muted'}>{k}</button>)}</div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <Panel><PanelTitle>Conceito</PanelTitle><p className="text-sm">{L.conceito}</p></Panel>
-        <Panel><PanelTitle>Interpretação</PanelTitle><p className="text-sm">{L.interpretacao}</p></Panel>
-        <Panel><PanelTitle>Exemplo</PanelTitle><p className="text-sm">{L.exemplo}</p></Panel>
-        <Panel><PanelTitle>Limitações</PanelTitle><p className="text-sm">{L.limitacoes}</p></Panel>
-      </div>
-      <Panel>
-        <PanelTitle>Calculadora — Risk/Reward, stop distance, position size</PanelTitle>
-        <div className="grid gap-2 md:grid-cols-4">
-          {([['Entrada', entry, setEntry], ['Stop', stop, setStop], ['Alvo', target, setTarget], ['Risco (R$)', risk, setRisk]] as [string, string, (v: string) => void][]).map(([k, v, fn]) => (
-            <label key={k} className="text-sm">{k}<input value={v} onChange={(e) => fn(e.target.value)} type="number" step="any" className="mt-1 w-full rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5" /></label>
+    <div className="space-y-3 text-[var(--text-secondary)]">
+      <div className="flex flex-wrap gap-1 border-b border-[var(--border)] pb-2">{Object.keys(LESSONS).map((k) => <button key={k} onClick={() => setTab(k)} className={k === tab ? 'px-3 py-1.5 text-sm font-semibold text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'px-3 py-1.5 text-sm text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>{k}</button>)}</div>
+      <MSection title={tab}>
+        <div className="divide-y divide-[var(--border)]">
+          {([['Conceito', L.conceito], ['Interpretação', L.interpretacao], ['Exemplo', L.exemplo], ['Limitações', L.limitacoes]] as [string, string][]).map(([k, v]) => (
+            <div key={k} className="grid gap-1 py-2 first:pt-0 last:pb-0">
+              <dt className="text-xs uppercase tracking-wider text-[var(--text-muted)]">{k}</dt>
+              <dd className="text-sm leading-6 text-[var(--text-secondary)]">{v}</dd>
+            </div>
           ))}
         </div>
-        <div className="tabular mt-2 text-sm">R/R: {riskReward(Number(entry), Number(stop), Number(target))?.toFixed(2) ?? '—'} · Stop distance: {Math.abs(Number(entry) - Number(stop)).toFixed(2)} · Position size: {positionSize(Number(entry), Number(stop), Number(risk)).toFixed(4)} un.</div>
-      </Panel>
+      </MSection>
+      <MSection title="Calculadora — Risk/Reward, stop distance, position size">
+        <div className="grid gap-2 md:grid-cols-4">
+          {([['Entrada', entry, setEntry], ['Stop', stop, setStop], ['Alvo', target, setTarget], ['Risco (R$)', risk, setRisk]] as [string, string, (v: string) => void][]).map(([k, v, fn]) => (
+            <label key={k} className="text-xs uppercase tracking-wider text-[var(--text-muted)]">{k}<input value={v} onChange={(e) => fn(e.target.value)} type="number" step="any" className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 text-sm tabular-nums text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]" /></label>
+          ))}
+        </div>
+        <div className="mt-2 text-sm tabular-nums text-[var(--text-secondary)]">R/R: <span className="font-semibold text-[var(--text-primary)]">{riskReward(Number(entry), Number(stop), Number(target))?.toFixed(2) ?? '—'}</span> · Stop distance: <span className="font-semibold text-[var(--text-primary)]">{Math.abs(Number(entry) - Number(stop)).toFixed(2)}</span> · Position size: <span className="font-semibold text-[var(--text-primary)]">{positionSize(Number(entry), Number(stop), Number(risk)).toFixed(4)}</span> un.</div>
+      </MSection>
     </div>
   );
 }

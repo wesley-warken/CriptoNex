@@ -1,12 +1,15 @@
 @import './styles/themes.css';
+@import './styles/tokens.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 html, body, #root { min-height: 100%; }
 body {
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-feature-settings: 'tnum' 1;
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum' 1;
+  background-color: var(--bg);
+  color: var(--text-primary);
 }
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -16,4 +19,11 @@ body {
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input, select, textarea { caret-color: var(--accent); }
 button { transition: background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out; }
+/* Popover do funil: entrada curta (150ms, ease-out), ancorado no gatilho. */
+@keyframes popover-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.animate-popover { animation: popover-in 150ms ease-out; transform-origin: top right; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-popover { animation: none; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.8; }

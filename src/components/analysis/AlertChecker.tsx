@@ -79,7 +79,7 @@ export function AlertChecker() {
         firedRef.current.add(a.id);
         beep(muted);
         markTriggered(a.id);
-        const text = `${a.symbol} ${a.condition === 'above' ? '≥' : '≤'} ${a.price} (agora ${px})`;
+        const text = `${a.symbol} ${a.condition === 'above' ? '≥' : '≤'} ${a.price} (agora ${px} · ${new Date().toLocaleTimeString('pt-BR')})`;
         const key = `${a.id}-${Date.now()}`;
         setFired((f) => [...f.slice(-2), { key, id: a.id, text }]);
         setTimeout(() => setFired((f) => f.filter((x) => x.key !== key)), 12000);

@@ -7,7 +7,7 @@ import type { CustomScan } from '@/engine/scanConditions';
 import type { MonFilter } from '@/engine/monitor';
 import type { Conviction } from '@/engine/ranking';
 
-export type ThemeName = 'light' | 'neon' | 'glass' | 'brutal' | 'nex';
+export type ThemeName = 'light' | 'neon' | 'glass' | 'brutal' | 'nex' | 'minimal';
 export type PortfolioMethod = 'standard' | 'investor';
 
 export interface PriceAlert {
@@ -49,6 +49,7 @@ interface SettingsState {
   refreshSec: number;
   brapiToken: string;
   theme: ThemeName;
+  tableDensity: 'compact' | 'comfortable';
   muted: boolean;
   segment: 'crypto' | 'stocks';
   favorites: string[];
@@ -68,6 +69,7 @@ interface SettingsState {
   pendingOp: PendingOp | null;
   tierGates: TierGatesState;
   set: (p: Partial<SettingsState>) => void;
+  setTableDensity: (density: 'compact' | 'comfortable') => void;
   toggleFav: (s: string) => void;
   toggleWatch: (s: string) => void;
   addPosition: (p: PortfolioPosition) => void;
@@ -106,7 +108,8 @@ export const useStore = create<SettingsState>()(
       currency: 'USD',
       refreshSec: 60,
       brapiToken: '',
-      theme: 'nex',
+      theme: 'light',
+      tableDensity: 'compact' as 'compact' | 'comfortable',
       muted: false,
       segment: 'crypto',
       favorites: ['BTC', 'ETH', 'SOL'],
@@ -126,6 +129,7 @@ export const useStore = create<SettingsState>()(
       pendingOp: null,
       tierGates: { eliteMinScore: 75, forteMinScore: 65, source: 'padrao' },
       set: (p) => set(p),
+      setTableDensity: (density) => set({ tableDensity: density }),
       toggleFav: (s) => set({ favorites: get().favorites.includes(s) ? get().favorites.filter((x) => x !== s) : [...get().favorites, s] }),
       toggleWatch: (s) => set({ watchlist: get().watchlist.includes(s) ? get().watchlist.filter((x) => x !== s) : [...get().watchlist, s] }),
       addPosition: (p) => set({ positions: [...get().positions, p] }),
@@ -213,6 +217,7 @@ export const useStore = create<SettingsState>()(
           for (const o of s.operations as Operation[]) o.walletId = 'main';
         }
         if (!s.portfolioMethod) s.portfolioMethod = 'standard';
+        if (!s.tableDensity) s.tableDensity = 'compact';
         return s;
       },
     },

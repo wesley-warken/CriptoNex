@@ -1,34 +1,23 @@
-# AGENTS.md
+# AGENTS.md — Opencode Minimal Loop
 
-## Dev environment tips
-- Install dependencies with `npm install` before running scaffolds.
-- Use `npm run dev` for the interactive TypeScript session that powers local experimentation.
-- Run `npm run build` to refresh the CommonJS bundle in `dist/` before shipping changes.
-- Store generated artefacts in `.context/` so reruns stay deterministic.
+These rules are loaded by opencode before loop work.
 
-## Testing instructions
-- Execute `npm run test` to run the Jest suite.
-- Append `-- --watch` while iterating on a failing spec.
-- Trigger `npm run build && npm run test` before opening a PR to mimic CI.
-- Add or update tests alongside any generator or CLI changes.
+## Loop Mode
 
-## PR instructions
-- Follow Conventional Commits (for example, `feat(scaffolding): add doc links`).
-- Cross-link new scaffolds in `docs/README.md` and `agents/README.md` so future agents can find them.
-- Attach sample CLI output or generated markdown when behaviour shifts.
-- Confirm the built artefacts in `dist/` match the new source changes.
+- Start in L1 report-only mode.
+- Read `STATE.md` before any triage.
+- Update `STATE.md` after every loop run.
+- Do not edit source code until the human explicitly enables L2.
 
-## Repository map
-- `index.html/` — explain what lives here and when agents should edit it.
-- `output/` — explain what lives here and when agents should edit it.
-- `package-lock.json/` — explain what lives here and when agents should edit it.
-- `package.json/` — explain what lives here and when agents should edit it.
-- `postcss.config.js/` — explain what lives here and when agents should edit it.
-- `src/` — explain what lives here and when agents should edit it.
-- `tailwind.config.js/` — explain what lives here and when agents should edit it.
-- `tsconfig.json/` — explain what lives here and when agents should edit it.
+## Safety
 
-## AI Context References
-- Documentation index: `.context/docs/README.md`
-- Agent playbooks: `.context/agents/README.md`
-- Contributor guide: `CONTRIBUTING.md`
+- Never push or merge without human approval.
+- Never edit `.env`, `.env.*`, `auth/`, `payments/`, `secrets/`, or `credentials/`.
+- Use a git worktree for every code-changing attempt.
+- Max 3 fix attempts per item; escalate after that.
+
+## Verification
+
+- For L2+ changes, dispatch a verifier sub-agent after implementation.
+- Run the project's documented tests before proposing a fix.
+- Record test evidence in `STATE.md`.

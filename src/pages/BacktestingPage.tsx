@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { binanceKlines } from '@/services/providers/binance';
-import { backtest } from '@/engine/backtesting';
+import { backtest, formatPF } from '@/engine/backtesting';
 import { Panel, PanelTitle, Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MStats } from '@/components/minimal/MStats';
 import type { Candle } from '@/types';
 
 export function BacktestingPage() {
@@ -27,25 +29,36 @@ export function BacktestingPage() {
   }, [symbol, retryKey]);
   const r = useMemo(() => (candles.length >= 60 ? backtest(candles, threshold, 7) : null), [candles, threshold]);
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 text-[var(--text-secondary)]">
       <Panel>
         <PanelTitle>Estratégia</PanelTitle>
-        <div className="flex flex-wrap gap-3 text-sm">
-          <label>Ativo <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1">{CRYPTO_ASSETS.map((x) => <option key={x.symbol} value={x.symbol}>{x.symbol}</option>)}</select></label>
-          <label>Score ≥ <input type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} className="w-20 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1" /></label>
-          <span className="text-muted">Período: dados diários reais · hold 7d · sem look-ahead (sinal usa só dados até o timestamp).</span>
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Ativo <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-xs text-[var(--text-primary)] outline-none">{CRYPTO_ASSETS.map((x) => <option key={x.symbol} value={x.symbol}>{x.symbol}</option>)}</select></label>
+          <label className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Score ≥ <input type="number" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))} className="w-20 rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1 text-xs tabular-nums text-[var(--text-primary)] outline-none" /></label>
+          <span className="text-xs text-[var(--text-muted)]">Período: dados diários reais · hold 7d · sem look-ahead (sinal usa só dados até o timestamp).</span>
         </div>
       </Panel>
       {loading && <Skeleton className="h-48" />}
       {error && <ErrorBox message={error} onRetry={() => setRetryKey((x) => x + 1)} />}
       {r && (
-        <div className="grid gap-3 md:grid-cols-3">
-          {[['Trades', String(r.trades)], ['Win rate', `${r.winRate.toFixed(1)}%`], ['Retorno médio', `${r.avgReturn.toFixed(2)}%`], ['Profit factor', r.profitFactor.toFixed(2)], ['Max drawdown', `${r.maxDrawdown.toFixed(1)}%`], ['Amostra', r.sampleEnough ? 'Suficiente (n≥20)' : 'Insufficient sample size']].map(([k, v]) => (
-            <Panel key={k}><div className="text-xs text-muted">{k}</div><div className="tabular text-xl font-bold">{v}</div></Panel>
-          ))}
-        </div>
+        <MStats
+          items={[
+            { label: 'Trades', value: `${r.trades}`, sub: `pulados: ${r.skippedOverlap + r.skippedInvalid}` },
+            { label: 'Win rate', value: `${r.winRate.toFixed(1)}%` },
+            { label: 'Retorno médio liq.', value: `${r.avgReturn.toFixed(2)}%`, tone: r.avgReturn >= 0 ? 'up' : 'down' },
+            { label: 'Mediana', value: `${r.medianReturn.toFixed(2)}%`, tone: r.medianReturn >= 0 ? 'up' : 'down' },
+            { label: 'Melhor/pior', value: `${r.best.toFixed(1)}% / ${r.worst.toFixed(1)}%` },
+            { label: 'Profit factor', value: formatPF(r.profitFactor, r.trades) },
+            { label: 'Max drawdown', value: `${r.maxDrawdown.toFixed(1)}%`, tone: 'down' },
+            { label: 'Benchmark B&H', value: `${r.benchmarkReturn.toFixed(1)}%` },
+            { label: 'Alpha', value: `${r.alpha >= 0 ? '+' : ''}${r.alpha.toFixed(1)}%`, tone: r.alpha >= 0 ? 'up' : 'down' },
+            { label: 'Exposição máx', value: `${r.maxSimultaneous} simult.` },
+            { label: 'Amostra', value: `${r.sampleLabel} (n=${r.trades})` },
+            { label: 'Qualidade dados', value: r.dataQuality ? `${r.dataQuality.score}/100` : '—' },
+          ]}
+        />
       )}
-      <Panel><PanelTitle>Aviso</PanelTitle><p className="text-sm text-muted">Backtest usa histórico real disponível e não garante resultado futuro. Amostras pequenas não sustentam conclusões.</p></Panel>
+      <MSection title="Aviso"><p className="text-sm leading-6 text-[var(--text-secondary)]">Backtest direcional (compra em BUY, vende em SELL) com alvo-antes-stop do plano, fee 0.1%/lado + slippage 0.05% e teto de 5 simultâneas. Retornos líquidos de custos; drawdown sobre equity composta. Não garante resultado futuro. Amostras pequenas não sustentam conclusões.</p></MSection>
     </div>
   );
 }

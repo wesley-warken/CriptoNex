@@ -3,7 +3,9 @@ import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { binanceKlines } from '@/services/providers/binance';
 import { useUniverseCrypto } from '@/services/universeHooks';
 import { cmf, cmfLabel, type FlowRow } from '@/engine/moneyflow';
-import { Panel, PanelTitle, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MEmpty } from '@/components/minimal/MEmpty';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
 import { fmtUSD, fmtPct } from '@/lib/format';
@@ -68,20 +70,20 @@ export function MoneyFlow() {
   if (error && !rows.length) return <ErrorBox message={error} onRetry={() => window.location.reload()} />;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar…" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5" />
-        <label>Faixa <select value={minRank} onChange={(e) => setMinRank(Number(e.target.value))} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+    <div className="space-y-3 text-[var(--text-secondary)]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-2 text-sm">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar…" className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-3 py-1.5 text-xs text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]" />
+        <label className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Faixa <select value={minRank} onChange={(e) => setMinRank(Number(e.target.value))} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none">
           {[0, 40, 80, 120].map((v) => <option key={v} value={v}>{v}{v === 0 ? '–40 (top)' : `–${v + 40}`}</option>)}
         </select></label>
-        <label>Ordem <select value={order} onChange={(e) => setOrder(e.target.value as typeof order)} className="rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5">
+        <label className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Ordem <select value={order} onChange={(e) => setOrder(e.target.value as typeof order)} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none">
           <option value="desc">Maior compra primeiro</option>
           <option value="asc">Maior venda primeiro</option>
         </select></label>
-        <span className="text-xs text-muted">CMF(20) diário · verde = entrada de dinheiro, vermelho = saída</span>
+        <span className="text-xs text-[var(--text-muted)]">CMF(20) diário · verde = entrada de dinheiro, vermelho = saída</span>
       </div>
       <Fullscreen title={`Fluxo de dinheiro — ${visible.length} ativos`}>
-        {!visible.length && <Empty title="Nada aqui" hint="Ajuste busca ou faixa." />}
+        {!visible.length && <MEmpty title="Nada aqui" hint="Ajuste busca ou faixa." />}
         <ResponsiveContainer width="100%" height={Math.max(280, visible.length * 26)}>
           <BarChart data={visible.map((r) => ({ name: r.symbol, v: r.cmf }))} layout="vertical">
             <XAxis type="number" fontSize={10} domain={[-1, 1]} />
@@ -91,17 +93,19 @@ export function MoneyFlow() {
           </BarChart>
         </ResponsiveContainer>
       </Fullscreen>
-      <Panel>
-        <PanelTitle>Tabela</PanelTitle>
+      <MSection title="Tabela">
+        <div className="divide-y divide-[var(--border)]">
         {visible.map((r) => (
-          <div key={r.symbol} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-1.5 text-sm">
-            <Link to={`/monitor?symbol=${r.symbol}`} className="w-16 font-bold hover:underline">{r.symbol}</Link>
-            <span className="tabular">{fmtUSD(r.price)}</span>
-            <span className="tabular" style={{ color: (r.change24h ?? 0) >= 0 ? 'var(--up)' : 'var(--down)' }}>{r.change24h != null ? fmtPct(r.change24h) : ''}</span>
-            <span className="tabular" style={{ color: r.cmf >= 0 ? 'var(--up)' : 'var(--down)' }}>CMF {r.cmf.toFixed(3)} · {cmfLabel(r.cmf)}</span>
+          <div key={r.symbol} className="flex flex-wrap items-center gap-3 py-1.5 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+            <Link to={`/monitor?symbol=${r.symbol}`} className="w-16 font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:underline active:scale-[0.98]">{r.symbol}</Link>
+            <span className="text-right tabular-nums text-[var(--text-secondary)]">{fmtUSD(r.price)}</span>
+            <span className={`text-right tabular-nums font-medium ${r.change24h == null ? 'text-[var(--text-muted)]' : (r.change24h ?? 0) >= 0 ? 'text-[var(--bull)]' : 'text-[var(--bear)]'}`}>{r.change24h != null ? fmtPct(r.change24h) : '—'}</span>
+            <span className={`tabular-nums font-medium ${r.cmf >= 0 ? 'text-[var(--bull)]' : 'text-[var(--bear)]'}`}>CMF {r.cmf.toFixed(3)}</span>
+            <span className="text-xs text-[var(--text-muted)]">{cmfLabel(r.cmf)}</span>
           </div>
         ))}
-      </Panel>
+        </div>
+      </MSection>
     </div>
   );
 }

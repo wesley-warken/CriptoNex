@@ -14,7 +14,7 @@ import { computeMaSet, type MaSet } from '@/services/maTable';
 import { unusualMove } from '@/engine/attention';
 
 export type MonTf = '1h' | '4h' | '1d' | '1w';
-export type MonIndicator = 'trend' | 'rsi' | 'stoch' | 'macd' | 'super' | 'attention' | 'ma';
+export type MonIndicator = 'trend' | 'rsi' | 'stoch' | 'macd' | 'super' | 'attention' | 'ma' | 'sr';
 export type MonOp = 'gte' | 'lte' | 'gt' | 'lt' | 'eq';
 export type MonColor = 'green' | 'red' | 'yellow' | 'blue';
 
@@ -59,28 +59,33 @@ export const MON_INDICATORS: { k: MonIndicator; label: string }[] = [
   { k: 'super', label: 'Supertrend' },
   { k: 'attention', label: 'Volume de Atenção' },
   { k: 'ma', label: 'Médias (diário)' },
+  { k: 'sr', label: 'Suporte/Resistência' },
 ];
 
-export const MON_FIELDS: Record<MonIndicator, { k: string; label: string }[]> = {
+export const MON_FIELDS: Record<MonIndicator, { k: string; label: string; hint?: string }[]> = {
   trend: [
-    { k: 'curto', label: 'Curto prazo' },
-    { k: 'medio', label: 'Médio prazo' },
-    { k: 'longo', label: 'Longo prazo' },
+    { k: 'curto', label: 'Curto prazo', hint: 'nível 0 (Baixa Forte) a 4 (Alta Forte)' },
+    { k: 'medio', label: 'Médio prazo', hint: 'nível 0 (Baixa Forte) a 4 (Alta Forte)' },
+    { k: 'longo', label: 'Longo prazo', hint: 'nível 0 (Baixa Forte) a 4 (Alta Forte)' },
   ],
-  rsi: [{ k: 'value', label: 'Valor' }],
+  rsi: [{ k: 'value', label: 'Valor', hint: '0 a 100 (≤30 sobrevenda, ≥70 sobrecompra)' }],
   stoch: [
-    { k: 'k', label: 'Rápido %K' },
-    { k: 'd', label: 'Lento %D' },
+    { k: 'k', label: 'Rápido %K', hint: '0 a 100 (≤20 sobrevendido, ≥80 sobrecomprado)' },
+    { k: 'd', label: 'Lento %D', hint: '0 a 100 (≤20 sobrevendido, ≥80 sobrecomprado)' },
   ],
-  macd: [{ k: 'hist', label: 'Histograma' }],
-  super: [{ k: 'dir', label: 'Direção' }],
+  macd: [{ k: 'hist', label: 'Histograma', hint: 'diferença absoluta (>0 altista, <0 baixista)' }],
+  super: [{ k: 'dir', label: 'Direção', hint: '1 = Alta, 0 = Baixa' }],
   attention: [
-    { k: 'ratio', label: '× Média' },
-    { k: 'today', label: 'Hoje %' },
+    { k: 'ratio', label: '× Média', hint: 'múltiplo da média de 10 dias (≥2 = atípico)' },
+    { k: 'today', label: 'Hoje %', hint: 'variação de hoje em %' },
   ],
   ma: [
-    { k: 'ema9_26', label: 'EMA9 − EMA26' },
-    { k: 'sma50_200', label: 'SMA50 − SMA200' },
+    { k: 'ema9_26', label: 'EMA9 − EMA26', hint: 'diferença absoluta (>0 golden, <0 death)' },
+    { k: 'sma50_200', label: 'SMA50 − SMA200', hint: 'diferença absoluta (>0 altista)' },
+  ],
+  sr: [
+    { k: 'distSup', label: 'Dist. Suporte %', hint: '% até o suporte de 20 (≤0 = perdeu o suporte)' },
+    { k: 'distRes', label: 'Dist. Resistência %', hint: '% até a resistência de 20 (≤0 = rompeu)' },
   ],
 };
 
@@ -124,6 +129,8 @@ export interface MonData {
   attRatio: number | null;
   attToday: number | null;
   ma: MaSet | null;
+  srDistSup: Record<MonTf, number | null>;
+  srDistRes: Record<MonTf, number | null>;
 }
 
 const num = (v: number | null | undefined): number | null => (v == null || Number.isNaN(v) ? null : v);
@@ -157,6 +164,24 @@ export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | nu
   });
   const c1d = closesOf('1d');
   const att = c1d.length >= 12 ? safe(() => unusualMove(c1d)) : null;
+  // S/R: distância % ao suporte/resistência de 20 barras (excluindo a atual).
+  // distRes ≤ 5 → aproximando-se da resistência; ≤ 0 → rompimento acima.
+  // distSup ≤ 5 → aproximando-se do suporte; ≤ 0 → perda do suporte.
+  const srOf = (kl: Candle[] | null): { sup: number | null; res: number | null } => {
+    if (!kl || kl.length < 22) return { sup: null, res: null };
+    const closes = kl.map((k) => k.close).filter((v) => v > 0);
+    if (closes.length < 22) return { sup: null, res: null };
+    const last = closes[closes.length - 1];
+    if (!(last > 0)) return { sup: null, res: null };
+    const window = closes.slice(-21, -1);
+    const sup20 = Math.min(...window);
+    const res20 = Math.max(...window);
+    if (!(sup20 > 0) || !(res20 > 0)) return { sup: null, res: null };
+    return {
+      sup: num(((last - sup20) / last) * 100),
+      res: num(((res20 - last) / last) * 100),
+    };
+  };
   // Tendência por consenso na MESMA série de cada tempo (fonte única por perna).
   // 1d sem klines: cold-start % dos campos do universo; com klines: consenso.
   // Tendência multi-TF: cada perna no seu timeframe (1d → 4h/diário/semanal).
@@ -186,6 +211,14 @@ export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | nu
     attRatio: att?.ratio ?? null,
     attToday: att?.todayPct ?? null,
     ma: c1d.length >= 210 ? safe(() => computeMaSet(c1d)) : null,
+    srDistSup: {
+      '1h': srOf(get('1h')).sup, '4h': srOf(get('4h')).sup,
+      '1d': srOf(get('1d')).sup, '1w': srOf(get('1w')).sup,
+    },
+    srDistRes: {
+      '1h': srOf(get('1h')).res, '4h': srOf(get('4h')).res,
+      '1d': srOf(get('1d')).res, '1w': srOf(get('1w')).res,
+    },
   };
 }
 
@@ -209,6 +242,8 @@ export function resolveValue(d: MonData, c: MonCondition): number | null {
     }
     case 'attention':
       return c.field === 'today' ? d.attToday : d.attRatio;
+    case 'sr':
+      return c.field === 'distRes' ? d.srDistRes[c.tf] : d.srDistSup[c.tf];
     case 'ma': {
       if (!d.ma) return null;
       if (c.field === 'sma50_200') {
@@ -240,6 +275,46 @@ export function evalCondition(d: MonData, c: MonCondition): boolean {
 /** Filtro casa quando tem ≥1 condição e TODAS passam (AND). */
 export function evalFilter(d: MonData, f: MonFilter): boolean {
   return f.conditions.length > 0 && f.conditions.every((c) => evalCondition(d, c));
+}
+
+const OP_SYMBOL: Record<MonOp, string> = { gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=' };
+
+/** Rótulo legível da condição (ex.: "RSI 4h"). */
+export function condLabel(c: MonCondition): string {
+  const ind = MON_INDICATORS.find((o) => o.k === c.indicator)?.label ?? c.indicator;
+  const tf = MON_TFS.find((o) => o.k === c.tf)?.label ?? c.tf;
+  return `${ind} ${tf}`;
+}
+
+const fmtVal = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+
+/** Valor atual formatado da condição (ex.: "Alta", "28,1") ou null sem dados. */
+export function condValueText(d: MonData, c: MonCondition): string | null {
+  const v = resolveValue(d, c);
+  if (v == null) return null;
+  if (c.indicator === 'trend') {
+    return TREND_LEVEL_OPTIONS.find((o) => o.value === v)?.label ?? fmtVal(v);
+  }
+  if (c.indicator === 'super') return v === 1 ? 'Alta' : 'Baixa';
+  return fmtVal(v).replace('.', ',');
+}
+
+/**
+ * Porquê da linha do Monitor: cada condição com valor atual e alvo
+ * (ex.: "RSI 4 horas 25 ≤ 30 · Super Diário Baixa = Baixa").
+ */
+export function whyFilter(d: MonData, f: MonFilter): string {
+  return f.conditions.map((c) => {
+    const cur = condValueText(d, c);
+    const field = MON_FIELDS[c.indicator].find((o) => o.k === c.field);
+    const target = c.indicator === 'trend'
+      ? (TREND_LEVEL_OPTIONS.find((o) => o.value === c.value)?.label ?? String(c.value))
+      : c.indicator === 'super'
+        ? (c.value === 1 ? 'Alta' : 'Baixa')
+        : String(c.value).replace('.', ',');
+    const left = field && field.k !== 'value' && field.k !== 'dir' ? `${condLabel(c)} ${field.label} ${cur ?? '—'}` : `${condLabel(c)} ${cur ?? '—'}`;
+    return `${left} ${OP_SYMBOL[c.op]} ${target}`;
+  }).join(' · ');
 }
 
 export interface MonMatch {
@@ -274,9 +349,13 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
       if (c.indicator === 'trend') continue;
       if (c.indicator === 'ma') needMA = true;
       else if (c.indicator === 'attention') needDaily = true;
+      else if (c.indicator === 'sr' && (c.tf === '1d' || c.tf === '1w')) {
+        if (c.tf === '1w') needW = true;
+        else needDaily = true;
+      }
       else if (c.tf === '1w') needW = true;
       else if (c.tf === '1d') needDaily = true;
-      // 1h/4h (rsi/stoch/macd/super): sparkline do universo — zero fetch
+      // 1h/4h (rsi/stoch/macd/super/sr): sparkline do universo — zero fetch
     }
   }
   return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW };
@@ -298,9 +377,9 @@ export const PRESET_FILTERS: MonFilter[] = [
     [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 }]),
   F('sobrecompra', 'Sobrecompra', 'flame', 'red', 'RSI diário acima de 70.',
     [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'gte', value: 70 }]),
-  F('golden-cross', 'Golden Cross', 'check', 'green', 'EMA 9 acima da EMA 26 no diário.',
+  F('golden-cross', 'Cruz Altista EMA 9/26', 'check', 'green', 'EMA 9 acima da EMA 26 no diário. Não é o Golden Cross clássico (SMA50/200).',
     [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'gt', value: 0 }]),
-  F('death-cross', 'Death Cross', 'trend-down', 'red', 'EMA 9 abaixo da EMA 26 no diário.',
+  F('death-cross', 'Cruz Baixista EMA 9/26', 'trend-down', 'red', 'EMA 9 abaixo da EMA 26 no diário. Não é o Death Cross clássico (SMA50/200).',
     [{ indicator: 'ma', tf: '1d', field: 'ema9_26', op: 'lt', value: 0 }]),
   F('alt-momentum', 'AltMomentum', 'gem', 'green', 'Movimento atípico de alta: ≥2× a média de 10 dias.',
     [
@@ -318,6 +397,22 @@ export const PRESET_FILTERS: MonFilter[] = [
     [{ indicator: 'super', tf: '4h', field: 'dir', op: 'eq', value: 1 }]),
   F('stoch-sobrevendido', 'Estocástico Sobrevendido', 'eye', 'yellow', 'Estocástico rápido ≤20 no 4 horas.',
     [{ indicator: 'stoch', tf: '4h', field: 'k', op: 'lte', value: 20 }]),
+  F('prox-resistencia', 'Aproximando da Resistência', 'up-right', 'yellow', 'A até 5% da máxima de 20 no diário: teste de resistência se aproxima.',
+    [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 5 }]),
+  F('prox-suporte', 'Aproximando do Suporte', 'trend-down', 'yellow', 'A até 5% da mínima de 20 no diário: teste de suporte se aproxima.',
+    [{ indicator: 'sr', tf: '1d', field: 'distSup', op: 'lte', value: 5 }]),
+  F('rompimento-resistencia', 'Rompimento de Resistência', 'zap', 'green', 'Fechou acima da máxima de 20 no diário.',
+    [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 0 }]),
+  F('sobrevendido-suporte', 'Sobrevendido no Suporte', 'gem', 'green', 'RSI diário ≤30 colado no suporte de 20 (até 2%).',
+    [
+      { indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 },
+      { indicator: 'sr', tf: '1d', field: 'distSup', op: 'lte', value: 2 },
+    ]),
+  F('sobrecomprado-resistencia', 'Sobrecomprado na Resistência', 'flame', 'red', 'RSI diário ≥70 colado na resistência de 20 (até 2%).',
+    [
+      { indicator: 'rsi', tf: '1d', field: 'value', op: 'gte', value: 70 },
+      { indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 2 },
+    ]),
 ];
 
 // ---- firstSeen (quando cada alerta acendeu pela 1ª vez) ----

@@ -9,6 +9,42 @@ import type { Candle } from '@/types';
 
 export type KlineInterval = '1h' | '4h' | '1d' | '1w';
 
+/** Duração da sessão de 4h em ms (blocos 00/04/08/12/16/20 UTC = 21/01/05/09/13/17 BRT). */
+export const H4_MS = 4 * 3600_000;
+
+/**
+ * Reamostra candles em sessões reais de parede (ex.: 1h → 4h alinhado em
+ * 00/04/08... UTC, que fecham 21:00, 17:00... em Brasília). Sessão parcial
+ * (início/fim dos dados) entra como candle em formação, igual nas exchanges.
+ */
+export function resampleCandles(kl: Candle[], sessionMs: number): Candle[] {
+  const build = (chunk: Candle[]): Candle => ({
+    time: chunk[0].time,
+    open: chunk[0].open,
+    high: Math.max(...chunk.map((k) => k.high)),
+    low: Math.min(...chunk.map((k) => k.low)),
+    close: chunk[chunk.length - 1].close,
+    volume: chunk.reduce((s, k) => s + k.volume, 0),
+  });
+  const out: Candle[] = [];
+  let key = -1;
+  let chunk: Candle[] = [];
+  const flush = () => {
+    if (chunk.length) out.push(build(chunk));
+    chunk = [];
+  };
+  for (const k of kl) {
+    const kKey = Math.floor(k.time / sessionMs);
+    if (kKey !== key) {
+      flush();
+      key = kKey;
+    }
+    chunk.push(k);
+  }
+  flush();
+  return out;
+}
+
 const BINANCE_TIMEOUT_MS = 6000;
 const ALT_TIMEOUT_MS = 6000;
 const COOLDOWN_MS = 5 * 60 * 1000;
@@ -143,7 +179,17 @@ async function krakenKlines(base: string, interval: KlineInterval, limit: number
   return null;
 }
 
-const CB_GRAN: Record<KlineInterval, number | null> = { '1h': 3600, '4h': 14400, '1d': 86400, '1w': null };
+/**
+ * Granularidades válidas da Coinbase: 60/300/900/3600/21600/86400.
+ * 4h (14400) NÃO existe na API — busca 1h e reamostra em sessões reais de
+ * parede; 1w não tem equivalente (usa-se o diário em outro lugar).
+ */
+export function coinbasePlan(interval: KlineInterval): { granularity: number; resampleMs: number | null } | null {
+  if (interval === '1h') return { granularity: 3600, resampleMs: null };
+  if (interval === '4h') return { granularity: 3600, resampleMs: H4_MS };
+  if (interval === '1d') return { granularity: 86400, resampleMs: null };
+  return null;
+}
 
 /** Linhas Coinbase [time, low, high, open, close, volume] (ordem da API varia) → candles. */
 export function parseCoinbase(json: unknown): Candle[] {
@@ -166,15 +212,18 @@ export function parseCoinbase(json: unknown): Candle[] {
 }
 
 async function coinbaseKlines(base: string, interval: KlineInterval, limit: number): Promise<Candle[] | null> {
-  const g = CB_GRAN[interval];
-  if (g == null) return null;
+  const plan = coinbasePlan(interval);
+  if (!plan) return null;
   try {
+    // Coinbase devolve no máx. 300 candles: no 1h→4h pede 4× para render o mesmo alcance
+    const need = plan.resampleMs ? Math.min(300, limit * 4 + 4) : limit;
     const r = await fetchWithTimeout(
-      `https://api.exchange.coinbase.com/products/${base.toUpperCase()}-USD/candles?granularity=${g}`,
+      `https://api.exchange.coinbase.com/products/${base.toUpperCase()}-USD/candles?granularity=${plan.granularity}`,
       ALT_TIMEOUT_MS,
     );
     if (!r.ok) return null;
-    const kl = parseCoinbase(await r.json()).slice(-limit);
+    const raw = parseCoinbase(await r.json()).slice(-need);
+    const kl = plan.resampleMs ? resampleCandles(raw, plan.resampleMs).slice(-limit) : raw.slice(-limit);
     return kl.length >= 30 ? kl : null;
   } catch {
     return null;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '@/stores/useStore';
 import { useCryptoMarket } from '@/services/market';
@@ -12,7 +12,13 @@ import { statsByEntryTier } from '@/lib/portfolio';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { isActiveCoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle, OpportunityScore } from '@/types';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MDot } from '@/components/minimal/MStats';
+import { MRow } from '@/components/minimal/MRow';
+import { MEmpty } from '@/components/minimal/MEmpty';
+import { Eye, Plus, Search, SlidersHorizontal, Star, X } from 'lucide-react';
+import { CoinLogo } from '@/components/ui/coin-logo';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
 import { rankOpportunities, topCategories, effectiveTier, stretchPercentiles, stockSegment, clampScoreInput, type Conviction } from '@/engine/ranking';
 
@@ -66,6 +72,23 @@ export function Opportunities() {
   const [hidePartial, setHidePartial] = useState(false);
   const [confOnly, setConfOnly] = useState(false);
   const [q, setQ] = useState('');
+  const [funnelOpen, setFunnelOpen] = useState(false);
+  const funnelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!funnelOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (funnelRef.current && !funnelRef.current.contains(e.target as Node)) setFunnelOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFunnelOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [funnelOpen]);
   const [mine, setMine] = useState<OpportunityScore[]>([]);
   const [mineLoading, setMineLoading] = useState(false);
   // Fase 3 — calibração walk-forward (cache IDB de 7 dias).
@@ -218,12 +241,14 @@ export function Opportunities() {
     () => (needle ? pool.filter((o) => o.symbol.toLowerCase().includes(needle)) : pool),
     [pool, needle],
   );
+  // Logos: CoinGecko (universo) + CDN CoinCap via <CoinLogo/> — toda cripto com sua logo.
+  const logoBySym = useMemo(() => {
+    const mp = new Map<string, string>();
+    for (const c of u.coins) if (c.image) mp.set(c.symbol, c.image);
+    return mp;
+  }, [u.coins]);
   // Preço e variação 24h por símbolo (crypto via market; ações ficam '—').
   const priceBySym = useMemo(() => new Map(m.data.map((d) => [d.symbol, d.price])), [m.data]);
-  const chg24BySym = useMemo(
-    () => new Map(m.data.map((d) => [d.symbol, d.change24h ?? null] as [string, number | null])),
-    [m.data],
-  );
   const gatesParam = useMemo(
     () => ({ eliteMinScore: tierGates.eliteMinScore, forteMinScore: tierGates.forteMinScore }),
     [tierGates],
@@ -287,11 +312,6 @@ export function Opportunities() {
     return c;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseRanked, stretchMap, gatesParam]);
-  const spotlight = useMemo(
-    () => baseRanked.filter((o) => o.signal === 'BUY' && effOf(o).tier === 'ELITE').slice(0, 3),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [baseRanked, stretchMap, gatesParam],
-  );
   // Transições recentes de tier (para o feed "mudou").
   const transitions = useMemo(
     () =>
@@ -420,153 +440,214 @@ export function Opportunities() {
     return mins < 1 ? 'menos de 1 min restante' : `≈ ${mins} min restantes (${Math.round(rate)}/min)`;
   }, [scan, segment]);
 
+  // Refinamento (funil): conta dims fora do padrão, chips e limpeza total.
+  const refineChips: { key: string; label: string; clear: () => void }[] = [];
+  if (tier !== 'ALL') refineChips.push({ key: 'tier', label: tier, clear: () => setTier('ALL') });
+  if (minScore !== 60) refineChips.push({ key: 'ms', label: `Score ≥ ${minScore}`, clear: () => setMinScore(60) });
+  if (minConf > 0) refineChips.push({ key: 'mc', label: `Conf ≥ ${minConf}%`, clear: () => setMinConf(0) });
+  if (minRR > 0) refineChips.push({ key: 'rr', label: `R:R ≥ ${minRR}`, clear: () => setMinRR(0) });
+  if (signal !== 'ALL') refineChips.push({ key: 'sig', label: signal === 'BUY' ? 'Compra' : signal === 'SELL' ? 'Venda' : 'Neutro', clear: () => setSignal('ALL') });
+  if (onlyBuy) refineChips.push({ key: 'ob', label: 'Só compra', clear: () => setOnlyBuy(false) });
+  if (hidePartial) refineChips.push({ key: 'hp', label: 'Oculta parciais', clear: () => setHidePartial(false) });
+  if (confOnly) refineChips.push({ key: 'co', label: 'Confluência total', clear: () => setConfOnly(false) });
+  if (q.trim()) refineChips.push({ key: 'q', label: `“${q.trim()}”`, clear: () => setQ('') });
+  const refineCount = refineChips.length;
+  const clearRefines = () => {
+    setTier('ALL'); setMinScore(60); setMinConf(0); setMinRR(0);
+    setSignal('ALL'); setOnlyBuy(false); setHidePartial(false); setConfOnly(false); setQ('');
+  };
+
   if (m.loading && !pool.length) return <Skeleton className="h-96" />;
   if (m.error && !m.data.length && !pool.length) return <ErrorBox message={m.error} onRetry={() => { m.reload(); void scanner.start(base); }} />;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {a.regime.label.includes('RISK-OFF') && (
-        <Panel>
-          <div className="text-sm">⚠ Regime <strong>{a.regime.label}</strong> — mercado defensivo. Compras exigem confirmação extra; priorize ELITE com alta confiança e evite alavancagem.</div>
-        </Panel>
+        <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-3 shadow-sm">
+          <MDot tone="down">{a.regime.label}</MDot>
+          <p className="mt-1 text-xs text-[var(--text-secondary)]">Mercado defensivo. Compras exigem confirmação extra; priorize ELITE com alta confiança e evite alavancagem.</p>
+        </div>
       )}
-      {spotlight.length > 0 && (
-        <Panel>
-          <PanelTitle>Destaques de convicção ELITE — top {spotlight.length}</PanelTitle>
-          <div className="grid gap-2 md:grid-cols-3">
-            {spotlight.map((o) => (
-              <div key={o.symbol} className="rounded-lg border border-[var(--accent)] p-3">
-                <div className="flex items-center justify-between">
-                  <Link to={`/monitor?symbol=${encodeURIComponent(o.symbol)}`} className="text-lg font-bold hover:underline">{o.symbol}</Link>
-                  <span className="flex items-center gap-2">
-                    <Badge tone="up">Compra</Badge>
-                    <span className="tabular font-bold">{o.score}</span>
-                  </span>
-                </div>
-                <div className="mt-1 text-xs text-muted">conf {o.confidence}% · DQ {o.dataQuality}% · alinhamento {o.timeframeAlignment}%</div>
-                <div className="mt-1 text-xs tabular">
-                  {o.plan ? (
-                    <span>R:R {o.plan.rr1.toFixed(1)} · stop {o.plan.stopPct.toFixed(1)}%</span>
-                  ) : (
-                    <span className="text-muted">sem plano (S/R inválido)</span>
-                  )}
-                  {(() => {
-                    const c = chg24BySym.get(o.symbol);
-                    return <span className="text-muted"> · 24h {c == null ? '—' : `${c >= 0 ? '+' : ''}${c.toFixed(1)}%`}</span>;
-                  })()}
-                </div>
-                <div className="mt-1 text-xs">{o.why.slice(0, 2).join(' · ')}</div>
-                {o.risks.length > 0 && <div className="mt-1 text-xs text-muted">Risco: {o.risks[0]}</div>}
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-      <Panel>
-        <PanelTitle
-          right={
-            <span className="flex items-center gap-2 text-xs normal-case">
-              {segment === 'B3' || segment === 'US' || segment === 'ALL' ? (
-                scan && (scan.stock.total > 0 || scan.stock.running) ? (
-                  <span>ações: {scan.stock.withScore.toLocaleString('pt-BR')} pontuadas ({spct}%)</span>
-                ) : null
-              ) : null}
-              {(segment === 'CRYPTO' || segment === 'ALL') && scan && (
-                <span>crypto: {scan.withScore.toLocaleString('pt-BR')} pontuadas ({pct}%)</span>
-              )}
-              {scan && scan.conf.running && (
-                <span>MTF: {scan.conf.withConf.toLocaleString('pt-BR')} com confluência{scan.conf.errors > 0 ? ` (${scan.conf.errors} falhas)` : ''}</span>
-              )}
-              {scan?.running || scan?.stock.running ? (
-                <button onClick={() => { scanner.pause(); scanner.pauseStocks(); scanner.pauseConfluence(); }} className="rounded border border-[var(--border)] px-2 py-0.5">Pausar</button>
-              ) : (
-                <button onClick={() => { void scanner.start(base); void scanner.startStocks(allStocks); }} className="rounded border border-[var(--border)] px-2 py-0.5">
-                  Escanear
-                </button>
-              )}
-              {!scan?.conf.running && (
-                <button title="Segunda passada: confluência 4h+1d (crypto) e 1h+1d (ações) nos candidatos" onClick={() => { void scanner.startConfluence(); }} className="rounded border border-[var(--border)] px-2 py-0.5">
-                  MTF
-                </button>
-              )}
-            </span>
-          }
-        >
-          Oportunidades — filtros
-        </PanelTitle>
+      <MSection
+        title="Filtros & Universo"
+        right={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-muted)]">
+            {segment === 'B3' || segment === 'US' || segment === 'ALL' ? (
+              scan && (scan.stock.total > 0 || scan.stock.running) ? (
+                <span className="tabular-nums">ações {scan.stock.withScore.toLocaleString('pt-BR')} ({spct}%)</span>
+              ) : null
+            ) : null}
+            {(segment === 'CRYPTO' || segment === 'ALL') && scan && (
+              <span className="tabular-nums">crypto {scan.withScore.toLocaleString('pt-BR')} ({pct}%)</span>
+            )}
+            {scan && scan.conf.running && (
+              <span className="tabular-nums">MTF {scan.conf.withConf.toLocaleString('pt-BR')}{scan.conf.errors > 0 ? ` (${scan.conf.errors} falhas)` : ''}</span>
+            )}
+            {scan?.running || scan?.stock.running ? (
+              <button onClick={() => { scanner.pause(); scanner.pauseStocks(); scanner.pauseConfluence(); }} className="font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]">Pausar</button>
+            ) : (
+              <button onClick={() => { void scanner.start(base); void scanner.startStocks(allStocks); }} className="font-medium text-[var(--brand)] hover:underline transition-colors active:scale-[0.98]">
+                Escanear
+              </button>
+            )}
+            {!scan?.conf.running && (
+              <button title="Segunda passada: confluência 4h+1d (crypto) e 1h+1d (ações) nos candidatos" onClick={() => { void scanner.startConfluence(); }} className="font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]">
+                MTF
+              </button>
+            )}
+          </span>
+        }
+      >
         {scan && (scan.running || scan.stock.running) && (
-          <div className="mb-2 h-1.5 overflow-hidden rounded bg-[var(--surface-2)]">
-            <div className="h-1.5 rounded bg-[var(--accent)] transition-all" style={{ width: `${segment === 'B3' || segment === 'US' ? spct : pct}%` }} />
+          <div className="mb-3 h-1.5 w-full rounded-full bg-[var(--surface-2)] overflow-hidden" role="progressbar" aria-label="Varredura em andamento">
+            <div className="h-full bg-[var(--brand)] transition-[width] duration-200 ease-out" style={{ width: `${segment === 'B3' || segment === 'US' ? spct : pct}%` }} />
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <div className="flex overflow-hidden rounded-lg border border-[var(--border)]">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] p-0.5 text-xs" role="tablist" aria-label="Segmento">
             {(Object.keys(segLabel) as Segment[]).map((s) => (
-              <button key={s} onClick={() => setSegment(s)} className={s === segment ? 'bg-[var(--accent)] px-3 py-1.5 font-bold text-black' : 'px-3 py-1.5 text-muted'}>
-                {segLabel[s]} <span className="tabular text-xs opacity-80">({segCount[s].toLocaleString('pt-BR')})</span>
-              </button>
-            ))}
-          </div>
-          <div className="flex overflow-hidden rounded-lg border border-[var(--border)]">
-            {(['ALL', 'ELITE', 'FORTE', 'OBSERVAR', 'EVITAR'] as TierFilter[]).map((t) => (
-              <button key={t} onClick={() => setTier(t)} title={t === 'ALL' ? 'Todas' : t === 'ELITE' ? 'Score≥75, conf≥65, DQ≥60, BUY' : t === 'FORTE' ? 'Score≥65, conf≥55' : t === 'OBSERVAR' ? 'Score≥50' : 'SELL ou score baixo'} className={t === tier ? 'bg-[var(--accent-2)] px-2.5 py-1.5 font-bold text-white' : 'px-2.5 py-1.5 text-muted'}>
-                {t === 'ALL' ? 'Todas' : t} <span className="tabular text-xs opacity-80">{t === 'ALL' ? `(${baseRanked.length})` : `(${tierCounts[t as Conviction]})`}</span>
+              <button
+                key={s}
+                role="tab"
+                aria-selected={segment === s}
+                onClick={() => setSegment(s)}
+                className={`rounded-[4px] px-3 py-1 text-xs font-medium transition-colors ${
+                  segment === s
+                    ? 'bg-[var(--surface-1)] font-semibold text-[var(--text-primary)] shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {segLabel[s]} <span className="text-[11px] tabular-nums opacity-75">({segCount[s].toLocaleString('pt-BR')})</span>
               </button>
             ))}
           </div>
           {segment === 'US' && (
-            <label>Bolsa <select value={exchange} onChange={(e) => setExchange(e.target.value)} className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1"><option value="ALL">Todas</option>{exchanges.map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+            <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+              Bolsa
+              <select value={exchange} onChange={(e) => setExchange(e.target.value)} aria-label="Bolsa" className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-xs font-medium text-[var(--text-primary)] shadow-sm">
+                <option value="ALL">Todas</option>
+                {exchanges.map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
+            </label>
           )}
-          <label>Ordenar <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1"><option value="score">Score</option><option value="confidence">Confiança</option><option value="dataQuality">Qualidade</option><option value="alignment">Alinhamento</option><option value="rr">R:R</option></select></label>
-          <label>Buscar <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="símbolo…" className="w-28 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1" /></label>
-          <label>Score ≥ <input type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(clampScoreInput(Number(e.target.value)))} className="w-20 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1" /></label>
-          <label>Confiança ≥ <input type="number" min={0} max={100} value={minConf} onChange={(e) => setMinConf(clampScoreInput(Number(e.target.value)))} className="w-20 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1" />%</label>
-          <label title="Filtra por R:R do plano (0 = desligado)">R:R ≥ <input type="number" min={0} max={20} step={0.5} value={minRR} onChange={(e) => setMinRR(Math.max(0, Number(e.target.value) || 0))} className="w-20 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1" /></label>
-          <label>Sinal <select value={signal} onChange={(e) => setSignal(e.target.value as typeof signal)} className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1"><option value="ALL">Todos</option><option value="BUY">Compra</option><option value="SELL">Venda</option><option value="NEUTRAL">Neutro</option></select></label>
-          <label className="flex items-center gap-1"><input type="checkbox" checked={onlyBuy} onChange={(e) => setOnlyBuy(e.target.checked)} /> Só compra</label>
-          <label className="flex items-center gap-1"><input type="checkbox" checked={hidePartial} onChange={(e) => setHidePartial(e.target.checked)} /> Ocultar parciais</label>
-          <label title="Só ativos com acordo total entre os timeframes do stage 2" className="flex items-center gap-1"><input type="checkbox" checked={confOnly} onChange={(e) => setConfOnly(e.target.checked)} /> Só confluência total</label>
-          <span className="text-muted">Regime atual: {a.regime.label}</span>
+          <label className="relative ml-auto flex min-w-44 flex-1 items-center sm:max-w-64">
+            <Search size={13} className="pointer-events-none absolute left-2.5 text-[var(--text-muted)]" aria-hidden="true" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar símbolo…"
+              aria-label="Buscar símbolo"
+              className="w-full rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] py-1.5 pl-8 pr-2.5 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] shadow-sm focus:border-[var(--brand)] focus:outline-none"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium text-[var(--text-secondary)]">
+            Ordenar
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} aria-label="Ordenar por" className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-xs font-medium text-[var(--text-primary)] shadow-sm">
+              <option value="score">Score</option>
+              <option value="confidence">Confiança</option>
+              <option value="dataQuality">Qualidade</option>
+              <option value="alignment">Alinhamento</option>
+              <option value="rr">R:R</option>
+            </select>
+          </label>
+          <div ref={funnelRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setFunnelOpen((o) => !o)}
+              aria-expanded={funnelOpen}
+              aria-label={`Refinamento${refineCount > 0 ? `, ${refineCount} ativos` : ''}`}
+              className={`relative rounded-[6px] border p-1.5 transition-all duration-150 ease-out active:scale-[0.98] shadow-sm ${
+                funnelOpen || refineCount > 0
+                  ? 'border-[var(--brand)] bg-[var(--brand-muted)] text-[var(--brand)]'
+                  : 'border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-2)]'
+              }`}
+            >
+              <SlidersHorizontal size={15} aria-hidden="true" />
+              {refineCount > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--brand)] px-1 text-[10px] font-bold tabular-nums text-white">
+                  {refineCount}
+                </span>
+              )}
+            </button>
+            {funnelOpen && (
+              <div className="animate-popover absolute right-0 top-full z-20 mt-2">
+                <OppRefinePopover
+                  tier={tier} setTier={setTier} tierCounts={tierCounts} baseTotal={baseRanked.length}
+                  minScore={minScore} setMinScore={setMinScore}
+                  minConf={minConf} setMinConf={setMinConf}
+                  minRR={minRR} setMinRR={setMinRR}
+                  signal={signal} setSignal={setSignal}
+                  onlyBuy={onlyBuy} setOnlyBuy={setOnlyBuy}
+                  hidePartial={hidePartial} setHidePartial={setHidePartial}
+                  confOnly={confOnly} setConfOnly={setConfOnly}
+                />
+              </div>
+            )}
+          </div>
         </div>
-        <div className="mt-1 text-xs text-muted">
-          {segment === 'MINE' && mineLoading ? 'Pontuando seus ativos…' : `Ranking sobre ${pool.length.toLocaleString('pt-BR')} ativos pontuados no segmento ${segLabel[segment]}.`}
-          {' '}{segment === 'CRYPTO' || segment === 'ALL' ? 'Scores parciais de crypto (sem volume/OHLC) mostram DQ ≤ 50 — abra a auditoria do score para ver.' : 'Ações usam candles completos do Yahoo (OHLC + volume).'}
-          {eta && <span> Varredura em andamento: {eta}.</span>}
-        </div>
-      </Panel>
+        {refineChips.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5" aria-label="Refinamentos ativos">
+            <span className="text-xs tabular-nums text-[var(--text-muted)]">Regime {a.regime.label}</span>
+            {refineChips.map((c) => (
+              <span key={c.key} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-2)] py-0.5 pl-2.5 pr-1.5 text-xs text-[var(--text-secondary)]">
+                {c.label}
+                <button
+                  type="button"
+                  onClick={c.clear}
+                  aria-label={`Remover ${c.label}`}
+                  className="rounded-full p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={clearRefines}
+              className="px-1 text-xs text-[var(--text-muted)] hover:text-[var(--brand)] underline transition-colors active:scale-[0.98]"
+            >
+              limpar tudo
+            </button>
+          </div>
+        )}
+        <p className="mt-2 text-xs tabular-nums text-[var(--text-muted)]" role="status">
+          {segment === 'MINE' && mineLoading
+            ? 'Pontuando seus ativos…'
+            : `${pool.length.toLocaleString('pt-BR')} ativos · ${ranked.length.toLocaleString('pt-BR')} no ranking`}
+          {eta ? ` · ${eta}` : ''}
+        </p>
+      </MSection>
       {transitions.length > 0 && (
-        <Panel>
-          <PanelTitle
-            right={
-              freshCount > 0 ? (
-                <span className="text-xs normal-case text-muted">● {freshCount} desde sua última visita</span>
-              ) : undefined
-            }
-          >
-            Transições de tier
-          </PanelTitle>
-          <div className="flex flex-wrap gap-2 text-sm">
+        <MSection
+          title="Transições de tier"
+          right={
+            freshCount > 0 ? (
+              <span className="text-xs normal-case tabular-nums text-[var(--text-muted)]">● {freshCount} desde sua última visita</span>
+            ) : undefined
+          }
+        >
+          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] divide-y divide-[var(--border-subtle)] overflow-hidden shadow-sm">
             {transitions.map(([symbol, v]) => (
               <Link
                 key={symbol}
                 to={`/monitor?symbol=${encodeURIComponent(symbol)}`}
                 title={`${v.prev} → ${v.tier} ${agoShort(v.since)}`}
-                className="rounded-lg border border-[var(--border)] px-2 py-1 hover:bg-[var(--surface-2)]"
+                className="flex flex-wrap items-baseline gap-x-2 px-4 py-2 text-xs transition-colors duration-150 ease-out hover:bg-[var(--surface-2)] active:scale-[0.98]"
               >
-                <strong>{symbol}</strong>{' '}
-                <span className="text-xs text-muted">
+                <strong className="font-bold text-[var(--text-primary)]">{symbol}</strong>{' '}
+                <span className="text-xs tabular-nums text-[var(--text-muted)]">
                   {v.prev} → {v.tier} · {agoShort(v.since)}
-                  {v.since > prevVisit.current && prevVisit.current > 0 ? ' ●' : ''}
+                  {v.since > prevVisit.current && prevVisit.current > 0 ? <span className="text-[var(--brand)] font-semibold"> · novo</span> : ''}
                 </span>
               </Link>
             ))}
           </div>
-        </Panel>
+        </MSection>
       )}
-      <Panel>
-        <PanelTitle>Ranking — {ranked.length.toLocaleString('pt-BR')} ativos</PanelTitle>
-        {!ranked.length && <Empty title="Nada no filtro" hint="Baixe o Score mínimo, troque o segmento ou aguarde a varredura." />}
-        <div className="max-h-[60vh] overflow-auto">
+      <MSection title={`Ranking — ${ranked.length.toLocaleString('pt-BR')} ativos`}>
+        {!ranked.length && <MEmpty title="Nada no filtro" hint="Baixe o Score mínimo, troque o segmento ou aguarde a varredura." />}
+        <div className="max-h-[60vh] overflow-auto rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] shadow-sm">
+          <div className="divide-y divide-[var(--border-subtle)]">
           {ranked.slice(0, 400).map((o, i) => {
             const { tier: conv, pct: stretchPct } = effOf(o);
             const trendPts = o.breakdown.find((b) => b.label === 'TREND');
@@ -582,51 +663,54 @@ export function Opportunities() {
               Date.now() - seen.since < 120 * 60000;
             const conf = o.confluence;
             return (
-              <div key={o.symbol} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-2 text-sm">
-                <span className="tabular w-10 text-muted">#{i + 1}</span>
-                <Link to={`/monitor?symbol=${encodeURIComponent(o.symbol)}`} className="w-20 truncate font-bold hover:underline">{o.symbol}</Link>
-                <div className="h-2 w-20 overflow-hidden rounded bg-[var(--surface-2)]" title={`Score ${o.score}/100`}>
-                  <div className="h-2 rounded bg-[var(--accent)]" style={{ width: `${Math.max(0, Math.min(100, o.score))}%` }} />
+              <div key={o.symbol} className="flex flex-wrap items-center gap-3 px-4 py-2 text-xs text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                <span className="w-8 text-right tabular-nums text-[var(--text-muted)] font-medium">#{i + 1}</span>
+                <span className="flex w-28 items-center gap-2">
+                  <CoinLogo symbol={o.symbol} image={logoBySym.get(o.symbol)} size={20} />
+                  <Link to={`/monitor?symbol=${encodeURIComponent(o.symbol)}`} className="truncate font-bold text-[var(--text-primary)] hover:text-[var(--brand)] transition-colors">{o.symbol}</Link>
+                </span>
+                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--surface-2)]" title={`Score ${o.score}/100`}>
+                  <div className="h-full bg-[var(--brand)]" style={{ width: `${Math.max(0, Math.min(100, o.score))}%` }} />
                 </div>
-                <span className="tabular w-8 font-bold">{o.score}</span>
+                <span className="w-7 text-right tabular-nums font-bold text-[var(--text-primary)]">{o.score}</span>
                 <ScoreAudit score={o} />
-                <span className="text-xs text-muted">{o.classification} · conf {o.confidence}% · DQ {o.dataQuality}%</span>
-                <Badge tone={o.signal === 'BUY' ? 'up' : o.signal === 'SELL' ? 'down' : 'warn'}>{o.signal === 'BUY' ? 'Compra' : o.signal === 'SELL' ? 'Venda' : 'Neutro'}</Badge>
-                <span title={wfTip(conv)}>
-                  <Badge tone={conv === 'ELITE' ? 'up' : conv === 'FORTE' ? 'accent' : conv === 'OBSERVAR' ? 'warn' : undefined}>{conv}</Badge>
+                <span className="text-[11px] tabular-nums text-[var(--text-muted)]">{o.classification} · conf {o.confidence}% · DQ {o.dataQuality}%</span>
+                <span className={`text-[11px] font-semibold ${o.signal === 'BUY' ? 'text-[var(--bull)]' : o.signal === 'SELL' ? 'text-[var(--bear)]' : 'text-[var(--text-muted)]'}`}>{o.signal === 'BUY' ? 'Compra' : o.signal === 'SELL' ? 'Venda' : 'Neutro'}</span>
+                <span title={wfTip(conv)} className={`text-[11px] font-semibold ${conv === 'ELITE' ? 'rounded-[4px] px-1.5 py-0.5 bg-[var(--bull-bg)] text-[var(--bull-text)]' : conv === 'FORTE' ? 'rounded-[4px] px-1.5 py-0.5 bg-[var(--brand-muted)] text-[var(--brand)]' : 'text-[var(--text-muted)]'}`}>
+                  {conv}
                 </span>
                 {o.plan ? (
-                  <span className="tabular text-xs" title={`Entrada ${o.plan.entry} · stop ${o.plan.stop} · alvo ${o.plan.target1} (${o.plan.basis})`}>
+                  <span className="text-[11px] tabular-nums text-[var(--text-secondary)]" title={`Entrada ${o.plan.entry} · stop ${o.plan.stop} · alvo ${o.plan.target1} (${o.plan.basis})`}>
                     R:R {o.plan.rr1.toFixed(1)} · stop {o.plan.stopPct.toFixed(1)}%
                   </span>
                 ) : (
-                  <Badge tone="warn">sem plano</Badge>
+                  <span className="text-[11px] text-[var(--text-muted)]">sem plano</span>
                 )}
                 {stretchPct != null && stretchPct >= 90 && (
-                  <span title={`Desvio vs SMA20 no percentil ${Math.round(stretchPct)} do universo — entrada atrasada, tier degradado`}>
-                    <Badge tone="warn">esticado</Badge>
+                  <span className="text-[11px] text-[var(--warn)]" title={`Desvio vs SMA20 no percentil ${Math.round(stretchPct)} do universo — entrada atrasada, tier degradado`}>
+                    esticado
                   </span>
                 )}
                 {conf != null &&
                   (conf.full ? (
-                    <span className="text-xs font-bold text-[var(--up)]" title={`${conf.tfA} ${conf.dirA} + ${conf.tfB} ${conf.dirB}`}>
+                    <span className="text-[11px] font-bold tabular-nums text-[var(--bull)]" title={`${conf.tfA} ${conf.dirA} + ${conf.tfB} ${conf.dirB}`}>
                       {conf.tfA}✓ {conf.tfB}✓
                     </span>
                   ) : (
-                    <span className="text-xs text-muted" title={`${conf.tfA} ${conf.dirA} vs ${conf.tfB} ${conf.dirB}`}>
+                    <span className="text-[11px] tabular-nums text-[var(--text-muted)]" title={`${conf.tfA} ${conf.dirA} vs ${conf.tfB} ${conf.dirB}`}>
                       {conf.tfA}/{conf.tfB}~
                     </span>
                   ))}
                 {isNew && seen && (
-                  <Badge tone="accent">novo {agoShort(seen.since)}</Badge>
+                  <span className="text-[11px] tabular-nums text-[var(--brand)] font-semibold">novo {agoShort(seen.since)}</span>
                 )}
                 {trendPts && momPts && volPts && (
-                  <span className="text-xs text-muted" title={`Tendência ${trendPts.earned}/${trendPts.max} · Momentum ${momPts.earned}/${momPts.max} · Volume ${volPts.earned}/${volPts.max}`}>
+                  <span className="text-[11px] tabular-nums text-[var(--text-muted)]" title={`Tendência ${trendPts.earned}/${trendPts.max} · Momentum ${momPts.earned}/${momPts.max} · Volume ${volPts.earned}/${volPts.max}`}>
                     T{trendPts.earned} M{momPts.earned} V{volPts.earned}
                   </span>
                 )}
-                {o.dataQuality < 55 && <Badge tone="warn">⚠ parcial</Badge>}
-                <span className="ml-auto flex gap-1">
+                {o.dataQuality < 55 && <span className="text-[11px] text-[var(--text-muted)]">parcial</span>}
+                <span className="ml-auto flex items-center gap-1.5">
                   <Link
                     to="/portfolio"
                     title="Operar: preenche no Portfolio com tier, R:R e contexto atuais"
@@ -642,171 +726,288 @@ export function Opportunities() {
                         confFull: conf?.full ?? false,
                       });
                     }}
-                    className="text-muted hover:text-[var(--accent)]"
+                    className="rounded-[4px] p-1 text-[var(--text-muted)] hover:text-[var(--brand)] hover:bg-[var(--surface-2)] transition-colors active:scale-[0.98]"
                   >
-                    ＋
+                    <Plus className="h-3.5 w-3.5" />
                   </Link>
-                  <button title={isFav ? 'Remover dos favoritos' : 'Favoritar'} onClick={() => toggleFav(o.symbol)} className={isFav ? 'font-bold text-[var(--accent)]' : 'text-muted'}>★</button>
-                  <button title={isWatch ? 'Remover do watchlist' : 'Observar'} onClick={() => toggleWatch(o.symbol)} className={isWatch ? 'font-bold text-[var(--accent)]' : 'text-muted'}>👁</button>
+                  <button title={isFav ? 'Remover dos favoritos' : 'Favoritar'} aria-pressed={isFav} onClick={() => toggleFav(o.symbol)} className={isFav ? 'p-1 text-amber-400 transition-colors duration-150 ease-out active:scale-[0.98]' : 'p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]'}><Star className="h-3.5 w-3.5" fill={isFav ? 'currentColor' : 'none'} aria-hidden="true" /></button>
+                  <button title={isWatch ? 'Remover do watchlist' : 'Observar'} onClick={() => toggleWatch(o.symbol)} className={isWatch ? 'p-1 text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]'}><Eye className="h-3.5 w-3.5" /></button>
                 </span>
               </div>
             );
           })}
-          {ranked.length > 400 && <div className="py-2 text-center text-xs text-muted">Mostrando top 400 de {ranked.length.toLocaleString('pt-BR')} — refine os filtros.</div>}
-        </div>
-      </Panel>
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Panel>
-          <PanelTitle
-            right={
-              <span className="flex items-center gap-2 text-xs normal-case">
-                {wfRunning && wfProg ? (
-                  <span>walk-forward: {wfProg.done}/{wfProg.total} ativos</span>
-                ) : null}
-                {wfRunning ? (
-                  <button onClick={() => wfCancel.current?.()} className="rounded border border-[var(--border)] px-2 py-0.5">Cancelar</button>
-                ) : (
-                  <button onClick={runWF} className="rounded border border-[var(--border)] px-2 py-0.5">
-                    {wf ? 'Recalibrar' : 'Calibrar'}
-                  </button>
-                )}
-              </span>
-            }
-          >
-            Calibração walk-forward
-          </PanelTitle>
-          {wfRunning && wfProg && (
-            <div className="mb-2 h-1.5 overflow-hidden rounded bg-[var(--surface-2)]">
-              <div
-                className="h-1.5 rounded bg-[var(--accent-2)] transition-all"
-                style={{ width: `${wfProg.total ? Math.round((wfProg.done / wfProg.total) * 100) : 0}%` }}
-              />
-            </div>
-          )}
-          {wfError && <div className="text-sm text-[var(--down)]">{wfError}</div>}
-          {!wf && !wfRunning && (
-            <div className="text-sm text-muted">
-              Rejoga o score em cada fechamento histórico e mede alvo-antes-stop em 10/20 candles por tier.
-              Roda em worker (fundo), sob demanda, com cache de 7 dias.
-            </div>
-          )}
-          {wf && (
-            <>
-              <div className="text-xs text-muted">
-                {wf.stats.symbols} ativos · {wf.stats.steps.toLocaleString('pt-BR')} sinais · calculado{' '}
-                {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(wf.ts))}
-              </div>
-              <div className="mt-1 space-y-1 text-sm">
-                {(['ELITE', 'FORTE', 'OBSERVAR', 'EVITAR'] as const).map((t) => {
-                  const h = Math.max(...wf.stats.horizons);
-                  const r = tierHit(wf.stats, t, h);
-                  const rr = tierAvgRR(wf.stats, t);
-                  return (
-                    <div key={t} className="flex justify-between tabular">
-                      <span className="font-bold">{t}</span>
-                      <span className="text-muted">
-                        {r ? `hit ${h}c ${(r.hit * 100).toFixed(0)}% (n=${r.n})` : 'sem amostra'}
-                        {rr ? ` · R:R ${rr.rr.toFixed(2)}` : ''}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              {wfSugg && (
-                <div className="mt-2 space-y-1 text-xs text-muted">
-                  {wfSugg.notes.map((n) => (
-                    <div key={n}>{n}</div>
-                  ))}
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => setTierGates({ ...wfSugg, source: 'walkforward' })}
-                      className="rounded border border-[var(--border)] px-2 py-1 text-sm"
-                    >
-                      Aplicar gates
-                    </button>
-                    <button
-                      onClick={() => setTierGates({ eliteMinScore: 75, forteMinScore: 65, source: 'padrao' })}
-                      className="rounded border border-[var(--border)] px-2 py-1 text-sm"
-                    >
-                      Padrão
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-          <div className="mt-1 text-xs text-muted">
-            Gates atuais: ELITE≥{tierGates.eliteMinScore} FORTE≥{tierGates.forteMinScore} ({tierGates.source === 'padrao' ? 'padrão' : tierGates.source}).
+          {ranked.length > 400 && <div className="py-2 text-center text-xs tabular-nums text-[var(--text-muted)]">Mostrando top 400 de {ranked.length.toLocaleString('pt-BR')} — refine os filtros.</div>}
           </div>
-        </Panel>
-        <Panel>
-          <PanelTitle
-            right={
-              personalSugg ? (
-                <span className="flex items-center gap-2 text-xs normal-case">
-                  <button
-                    onClick={() =>
-                      setTierGates({
-                        eliteMinScore: personalSugg.eliteMinScore,
-                        forteMinScore: personalSugg.forteMinScore,
-                        source: 'pessoal',
-                      })
-                    }
-                    className="rounded border border-[var(--border)] px-2 py-0.5"
-                  >
-                    Usar meus gates
-                  </button>
-                  <button
-                    onClick={() => setTierGates({ eliteMinScore: 75, forteMinScore: 65, source: 'padrao' })}
-                    className="rounded border border-[var(--border)] px-2 py-0.5"
-                  >
-                    Padrão
-                  </button>
-                </span>
-              ) : undefined
-            }
-          >
-            Sua estatística
-          </PanelTitle>
-          {personal.closedTrades === 0 && (
-            <div className="text-sm text-muted">
-              Opere pela aba (botão ＋ na linha) para taggear o contexto — ao fechar, o resultado alimenta win rate por tier aqui.
-            </div>
-          )}
-          {personal.closedTrades > 0 && (
-            <div className="mt-1 space-y-1 text-sm">
-              {Object.entries(personal.byTier)
-                .sort((a, b) => b[1].trades - a[1].trades)
-                .map(([t, s]) => (
-                  <div key={t} className="flex justify-between tabular">
-                    <span className="font-bold">{t}</span>
-                    <span className="text-muted">
-                      {s.trades} trades · win {((s.wins / s.trades) * 100).toFixed(0)}% · PnL {s.pnl >= 0 ? '+' : ''}
-                      {s.pnl.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              <div className="text-xs text-muted">
-                {personal.closedTrades} trades fechados no total
-                {personal.closedTrades < 30
-                  ? ` — faltam ${30 - personal.closedTrades} para calibrar pelos seus dados.`
-                  : '.'}
-              </div>
-              {personalSugg && (
-                <div className="space-y-1 text-xs text-muted">
-                  {personalSugg.notes.map((n) => (
-                    <div key={n}>{n}</div>
-                  ))}
-                </div>
+        </div>
+      </MSection>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <MSection
+          title="Calibração walk-forward"
+          right={
+            <span className="flex items-center gap-2 text-xs normal-case text-[var(--text-muted)]">
+              {wfRunning && wfProg ? (
+                <span className="tabular-nums">walk-forward: {wfProg.done}/{wfProg.total} ativos</span>
+              ) : null}
+              {wfRunning ? (
+                <button onClick={() => wfCancel.current?.()} className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2 py-0.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]">Cancelar</button>
+              ) : (
+                <button onClick={runWF} className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-0.5 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-2)] transition-colors active:scale-[0.98]">
+                  {wf ? 'Recalibrar' : 'Calibrar'}
+                </button>
               )}
+            </span>
+          }
+        >
+          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-sm">
+            {wfRunning && wfProg && (
+              <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                <div
+                  className="h-full bg-[var(--brand)] transition-all"
+                  style={{ width: `${wfProg.total ? Math.round((wfProg.done / wfProg.total) * 100) : 0}%` }}
+                />
+              </div>
+            )}
+            {wfError && <div className="text-sm font-medium text-[var(--bear)]">{wfError}</div>}
+            {!wf && !wfRunning && (
+              <div className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Rejoga o score em cada fechamento histórico e mede alvo-antes-stop em 10/20 candles por tier.
+                Roda em worker (fundo), sob demanda, com cache de 7 dias.
+              </div>
+            )}
+            {wf && (
+              <>
+                <div className="text-xs tabular-nums text-[var(--text-muted)]">
+                  {wf.stats.symbols} ativos · {wf.stats.steps.toLocaleString('pt-BR')} sinais · calculado{' '}
+                  {new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(wf.ts))}
+                </div>
+                <dl className="mt-1 divide-y divide-[var(--border-subtle)]">
+                  {(['ELITE', 'FORTE', 'OBSERVAR', 'EVITAR'] as const).map((t) => {
+                    const h = Math.max(...wf.stats.horizons);
+                    const r = tierHit(wf.stats, t, h);
+                    const rr = tierAvgRR(wf.stats, t);
+                    return (
+                      <MRow
+                        key={t}
+                        k={t}
+                        v={r ? `hit ${h}c ${(r.hit * 100).toFixed(0)}% (n=${r.n})` : '—'}
+                        sub={rr ? `R:R ${rr.rr.toFixed(2)}` : undefined}
+                      />
+                    );
+                  })}
+                </dl>
+                {wfSugg && (
+                  <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)] border-t border-[var(--border-subtle)] pt-2">
+                    {wfSugg.notes.map((n) => (
+                      <div key={n}>{n}</div>
+                    ))}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => setTierGates({ ...wfSugg, source: 'walkforward' })}
+                        className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-semibold uppercase tracking-wider text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors active:scale-[0.98]"
+                      >
+                        Aplicar gates
+                      </button>
+                      <button
+                        onClick={() => setTierGates({ eliteMinScore: 75, forteMinScore: 65, source: 'padrao' })}
+                        className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-xs uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]"
+                      >
+                        Padrão
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            <div className="mt-2 text-xs tabular-nums text-[var(--text-muted)]">
+              Gates atuais: ELITE≥{tierGates.eliteMinScore} FORTE≥{tierGates.forteMinScore} ({tierGates.source === 'padrao' ? 'padrão' : tierGates.source}).
             </div>
-          )}
-        </Panel>
+          </div>
+        </MSection>
+        <MSection
+          title="Sua estatística real por tier"
+          right={
+            personalSugg ? (
+              <span className="flex items-center gap-2 text-xs normal-case">
+                <button
+                  onClick={() =>
+                    setTierGates({
+                      eliteMinScore: personalSugg.eliteMinScore,
+                      forteMinScore: personalSugg.forteMinScore,
+                      source: 'pessoal',
+                    })
+                  }
+                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1 text-xs font-medium text-[var(--text-primary)] hover:border-[var(--brand)] hover:text-[var(--brand)] transition-colors active:scale-[0.98]"
+                >
+                  Usar meus gates
+                </button>
+                <button
+                  onClick={() => setTierGates({ eliteMinScore: 75, forteMinScore: 65, source: 'padrao' })}
+                  className="rounded-[6px] border border-[var(--border)] bg-[var(--surface-1)] px-2.5 py-1 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors active:scale-[0.98]"
+                >
+                  Padrão
+                </button>
+              </span>
+            ) : undefined
+          }
+        >
+          <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-sm">
+            {personal.closedTrades === 0 && (
+              <div className="text-xs text-[var(--text-muted)] leading-relaxed">
+                Opere pela aba (botão + na linha) para taggear o contexto — ao fechar, o resultado alimenta win rate por tier aqui.
+              </div>
+            )}
+            {personal.closedTrades > 0 && (
+              <div>
+                <dl className="divide-y divide-[var(--border-subtle)]">
+                  {Object.entries(personal.byTier)
+                    .sort((a, b) => b[1].trades - a[1].trades)
+                    .map(([t, s]) => (
+                      <MRow
+                        key={t}
+                        k={t}
+                        v={`${s.trades} trades · win ${((s.wins / s.trades) * 100).toFixed(0)}% · PnL ${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(2)}`}
+                      />
+                    ))}
+                </dl>
+                <div className="mt-2 text-xs tabular-nums text-[var(--text-muted)]">
+                  {personal.closedTrades} trades fechados no total
+                  {personal.closedTrades < 30
+                    ? ` — faltam ${30 - personal.closedTrades} para calibrar pelos seus dados.`
+                    : '.'}
+                </div>
+                {personalSugg && (
+                  <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)] border-t border-[var(--border-subtle)] pt-2">
+                    {personalSugg.notes.map((n) => (
+                      <div key={n}>{n}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </MSection>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-3">
         {Object.entries(cats).map(([k, v]) => (
-          <Panel key={k}><PanelTitle>{k}</PanelTitle>{v.map((o) => <div key={o.symbol} className="flex justify-between py-1 text-sm"><Link to={`/monitor?symbol=${encodeURIComponent(o.symbol)}`} className="font-semibold hover:underline">{o.symbol}</Link><span className="tabular">{o.score}</span></div>)}</Panel>
+          <MSection key={k} title={k}>
+            <div className="rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] divide-y divide-[var(--border-subtle)] overflow-hidden shadow-sm">
+              {v.map((o) => (
+                <div key={o.symbol} className="flex items-center justify-between gap-2 px-3 py-2 text-xs transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                  <span className="flex items-center gap-2">
+                    <CoinLogo symbol={o.symbol} image={logoBySym.get(o.symbol)} size={18} />
+                    <Link to={`/monitor?symbol=${encodeURIComponent(o.symbol)}`} className="font-bold text-[var(--text-primary)] hover:text-[var(--brand)] transition-colors">{o.symbol}</Link>
+                  </span>
+                  <span className="text-right tabular-nums font-semibold text-[var(--text-secondary)]">{o.score}</span>
+                </div>
+              ))}
+            </div>
+          </MSection>
         ))}
+      </div>
+    </div>
+  );
+}
+
+const TIER_TITLES: Record<TierFilter, string> = {
+  ALL: 'Todas',
+  ELITE: 'Score≥75, conf≥65, DQ≥60, BUY',
+  FORTE: 'Score≥65, conf≥55',
+  OBSERVAR: 'Score≥50',
+  EVITAR: 'SELL ou score baixo',
+};
+
+function RefineOption({ selected, onClick, title, children }: {
+  selected: boolean; onClick: () => void; title?: string; children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      aria-pressed={selected}
+      className={`rounded-[6px] border px-2.5 py-1 text-xs tabular-nums transition-all duration-150 ease-out active:scale-[0.98] ${
+        selected
+          ? 'border-[var(--brand)] bg-[var(--brand-muted)] font-semibold text-[var(--brand)]'
+          : 'border-[var(--border)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RefineGroup({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">{label}</p>
+      <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+/** Popover do funil: convicção, limites, sinal e interruptores. Aplica ao vivo. */
+function OppRefinePopover(props: {
+  tier: TierFilter; setTier: (t: TierFilter) => void;
+  tierCounts: Record<Conviction, number>; baseTotal: number;
+  minScore: number; setMinScore: (n: number) => void;
+  minConf: number; setMinConf: (n: number) => void;
+  minRR: number; setMinRR: (n: number) => void;
+  signal: 'ALL' | 'BUY' | 'SELL' | 'NEUTRAL'; setSignal: (s: 'ALL' | 'BUY' | 'SELL' | 'NEUTRAL') => void;
+  onlyBuy: boolean; setOnlyBuy: (b: boolean) => void;
+  hidePartial: boolean; setHidePartial: (b: boolean) => void;
+  confOnly: boolean; setConfOnly: (b: boolean) => void;
+}) {
+  const p = props;
+  const numCls = 'w-16 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-right text-xs tabular-nums text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]';
+  return (
+    <div className="w-80 rounded-[8px] border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl">
+      <div className="space-y-4">
+        <RefineGroup label="Convicção">
+          {(['ALL', 'ELITE', 'FORTE', 'OBSERVAR', 'EVITAR'] as TierFilter[]).map((t) => (
+            <RefineOption
+              key={t}
+              title={TIER_TITLES[t]}
+              selected={p.tier === t}
+              onClick={() => p.setTier(t)}
+            >
+              {t === 'ALL' ? 'Todas' : t}{' '}
+              <span className="text-[11px] opacity-75">{t === 'ALL' ? p.baseTotal : p.tierCounts[t as Conviction]}</span>
+            </RefineOption>
+          ))}
+        </RefineGroup>
+        <RefineGroup label="Limites">
+          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            Score ≥
+            <input type="number" min={0} max={100} value={p.minScore} onChange={(e) => p.setMinScore(clampScoreInput(Number(e.target.value)))} aria-label="Score mínimo" className={numCls} />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+            Conf ≥
+            <input type="number" min={0} max={100} value={p.minConf} onChange={(e) => p.setMinConf(clampScoreInput(Number(e.target.value)))} aria-label="Confiança mínima" className={numCls} />
+            <span className="text-[var(--text-muted)]">%</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]" title="Filtra por R:R do plano (0 = desligado)">
+            R:R ≥
+            <input type="number" min={0} max={20} step={0.5} value={p.minRR} onChange={(e) => p.setMinRR(Math.max(0, Number(e.target.value) || 0))} aria-label="R:R mínimo" className={numCls} />
+          </label>
+        </RefineGroup>
+        <RefineGroup label="Sinal">
+          {(['ALL', 'BUY', 'SELL', 'NEUTRAL'] as const).map((s) => (
+            <RefineOption key={s} selected={p.signal === s} onClick={() => p.setSignal(s)}>
+              {s === 'ALL' ? 'Todos' : s === 'BUY' ? 'Compra' : s === 'SELL' ? 'Venda' : 'Neutro'}
+            </RefineOption>
+          ))}
+        </RefineGroup>
+        <div className="space-y-2 border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-secondary)]">
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={p.onlyBuy} onChange={(e) => p.setOnlyBuy(e.target.checked)} className="rounded border-[var(--border)] accent-[var(--brand)]" /> Só compra
+          </label>
+          <label className="flex cursor-pointer items-center gap-2" title="Oculta ativos com dados parciais (DQ < 55)">
+            <input type="checkbox" checked={p.hidePartial} onChange={(e) => p.setHidePartial(e.target.checked)} className="rounded border-[var(--border)] accent-[var(--brand)]" /> Ocultar parciais
+          </label>
+          <label className="flex cursor-pointer items-center gap-2" title="Só ativos com acordo total entre os timeframes">
+            <input type="checkbox" checked={p.confOnly} onChange={(e) => p.setConfOnly(e.target.checked)} className="rounded border-[var(--border)] accent-[var(--brand)]" /> Só confluência total
+          </label>
+        </div>
       </div>
     </div>
   );

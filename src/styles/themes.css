@@ -1,11 +1,45 @@
-/* LED ticker wall: 5 temas via CSS variables — nenhuma cor hardcoded nos componentes.
-   glass/light/neon/brutal reformulados na mesma gramática + nex (identidade nova, padrão). */
-:root, [data-theme='nex'] {
+/* LED ticker wall: 6 temas via CSS variables — nenhuma cor hardcoded nos componentes.
+   light (padrão editorial minimalista), minimal (flat dark), nex, glass, neon, brutal. */
+:root, [data-theme='light'] {
+  --bg: #F8FAFC;
+  --surface: #FFFFFF;
+  --surface-1: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --border-strong: #CBD5E1;
+  --text: #0F172A;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --muted: #64748B;
+  --accent: #0284C7;
+  --accent-2: #7C3AED;
+  --brand: #0284C7;
+  --brand-muted: rgba(2, 132, 199, 0.08);
+  --brand-glow: transparent;
+  --brand-hover: #0369A1;
+  --focus-ring: #0284C7;
+  --up: #059669;
+  --down: #E11D48;
+  --warn: #D97706;
+  --glass-blur: none;
+  color-scheme: light;
+}
+[data-theme='nex'] {
   --bg: #06090c;
   --surface: #0b1116;
+  --surface-1: #0b1116;
   --surface-2: #101922;
+  --surface-3: #182330;
   --border: rgba(148, 163, 184, 0.16);
+  --border-subtle: rgba(148, 163, 184, 0.08);
+  --border-strong: rgba(148, 163, 184, 0.28);
   --text: #e8eef4;
+  --text-primary: #e8eef4;
+  --text-secondary: #94a3b8;
+  --text-muted: #7d8ea1;
   --muted: #7d8ea1;
   --accent: #b388ff;
   --accent-2: #b388ff;
@@ -15,12 +49,19 @@
   --glass-blur: none;
   color-scheme: dark;
 }
-:root, [data-theme='glass'] {
+[data-theme='glass'] {
   --bg: #0a101c;
   --surface: rgba(15, 23, 36, 0.85);
+  --surface-1: rgba(16, 22, 32, 0.85);
   --surface-2: rgba(28, 39, 56, 0.7);
+  --surface-3: rgba(29, 38, 54, 0.70);
   --border: rgba(148, 163, 184, 0.2);
+  --border-subtle: rgba(148, 163, 184, 0.08);
+  --border-strong: rgba(148, 163, 184, 0.28);
   --text: #e6edf5;
+  --text-primary: #e6edf5;
+  --text-secondary: #94a3b8;
+  --text-muted: #8fa1b5;
   --muted: #8fa1b5;
   --accent: #22d3ee;
   --accent-2: #a78bfa;
@@ -29,20 +70,6 @@
   --warn: #fbbf24;
   --glass-blur: blur(18px);
   color-scheme: dark;
-}
-[data-theme='light'] {
-  --bg: #f4f6f9;
-  --surface: #ffffff;
-  --surface-2: #eceff3;
-  --border: #dbe1e9;
-  --text: #10161f;
-  --muted: #5f6f82;
-  --accent: #0369a1;
-  --accent-2: #6d28d9;
-  --up: #047857;
-  --down: #be123c;
-  --warn: #92400e;
-  color-scheme: light;
 }
 [data-theme='neon'] {
   --bg: #04060b;
@@ -71,6 +98,47 @@
   --down: #b91c1c;
   --warn: #92400e;
   color-scheme: light;
+}
+/* Minimal: o sistema do dashboard de setups, agora padrão do terminal.
+   Superfícies planas zinc, texto zinc-400, branco para ênfase, cor só
+   semântica + cyan como acento único. Glow zerado em todas as vars. */
+[data-theme='minimal'] {
+  --bg: #09090b;
+  --surface: #0e0e11;
+  --surface-1: #0e0e11;
+  --surface-2: #151518;
+  --surface-3: #1c1c21;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text: #fafafa;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --muted: #71717a;
+  --accent: #67e8f9;
+  --accent-2: #67e8f9;
+  --brand: #67e8f9;
+  --brand-muted: rgba(103, 232, 249, 0.12);
+  --brand-glow: transparent;
+  --brand-hover: #22d3ee;
+  --focus-ring: #67e8f9;
+  --up: #34d399;
+  --down: #f87171;
+  --warn: #fbbf24;
+  --bull: #34d399;
+  --bull-bg: rgba(52, 211, 153, 0.12);
+  --bull-text: #34d399;
+  --bear: #f87171;
+  --bear-bg: rgba(248, 113, 113, 0.12);
+  --bear-text: #f87171;
+  --neutral: #71717a;
+  --neutral-bg: rgba(113, 113, 122, 0.12);
+  --neutral-text: #a1a1aa;
+  --warn-bg: rgba(251, 191, 36, 0.12);
+  --warn-text: #fbbf24;
+  --glass-blur: none;
+  color-scheme: dark;
 }
 body {
   background: var(--bg);

@@ -6,7 +6,8 @@ import { useCryptoMarket } from '@/services/market';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { binanceKlines } from '@/services/providers/binance';
 import { correlationMatrix } from '@/engine/correlation';
-import { Panel, PanelTitle, Skeleton, ErrorBox } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { fmtPct, fmtNum } from '@/lib/format';
 
@@ -28,7 +29,7 @@ export function DeepChart() {
   return (
     <div className="space-y-3">
       <Fullscreen title="Treemap Top 30 — área = market cap · cor = performance">
-        <div className="relative h-[420px] w-full overflow-hidden rounded-lg">
+        <div className="relative h-[420px] w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-2)]">
           {treemap.leaves.map((l, i) => {
             const d = treemap.top[i];
             if (!d) return null;
@@ -36,23 +37,23 @@ export function DeepChart() {
             const x0 = l.x0; const y0 = l.y0; const x1 = l.x1; const y1 = l.y1;
             return (
               <button key={d.symbol} onClick={() => nav(`/monitor?symbol=${d.symbol}`)} title={`${d.name} ${fmtPct(v)}`}
-                className="absolute flex flex-col items-center justify-center overflow-hidden rounded text-black"
-                style={{ left: `${x0}%`, top: `${(y0 / 42) * 100}%`, width: `${Math.max(4, x1 - x0)}%`, height: `${Math.max(6, ((y1 - y0) / 42) * 100)}%`, background: (v ?? 0) >= 0 ? `rgba(52,211,153,${0.4 + Math.min(0.55, Math.abs(v ?? 0) / 12)})` : `rgba(251,113,133,${0.4 + Math.min(0.55, Math.abs(v ?? 0) / 12)})` }}>
-                <span className="text-xs font-bold">{d.symbol}</span>
-                <span className="text-[10px]">{fmtPct(v)}</span>
+                className="absolute flex flex-col items-center justify-center overflow-hidden rounded text-white shadow-sm transition-transform active:scale-[0.98]"
+                style={{ left: `${x0}%`, top: `${(y0 / 42) * 100}%`, width: `${Math.max(4, x1 - x0)}%`, height: `${Math.max(6, ((y1 - y0) / 42) * 100)}%`, background: (v ?? 0) >= 0 ? `rgba(16,185,129,${0.65 + Math.min(0.3, Math.abs(v ?? 0) / 12)})` : `rgba(239,68,68,${0.65 + Math.min(0.3, Math.abs(v ?? 0) / 12)})` }}>
+                <span className="text-xs font-bold leading-tight">{d.symbol}</span>
+                <span className="text-[10px] tabular-nums font-semibold leading-tight">{fmtPct(v)}</span>
               </button>
             );
           })}
         </div>
-        <div className="mt-2 flex gap-1 text-xs">{COLS.map((c, i) => <button key={c} onClick={() => setTfIdx(i)} className={i === tfIdx ? 'rounded bg-[var(--accent)] px-2 py-1 font-bold text-black' : 'rounded border border-[var(--border)] px-2 py-1 text-muted'}>{c}</button>)}</div>
+        <div className="mt-2 flex gap-4 border-t border-[var(--border)] pt-2 text-xs">{COLS.map((c, i) => <button key={c} onClick={() => setTfIdx(i)} className={i === tfIdx ? 'font-semibold tabular-nums text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'tabular-nums text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>{c}</button>)}</div>
       </Fullscreen>
       <Fullscreen title="Heatmap Ativo × Timeframe">
         <div className="overflow-x-auto"><table className="w-full text-sm">
-          <thead><tr><th className="p-2 text-left">Ativo</th>{COLS.map((c) => <th key={c} className="p-2">{c}</th>)}</tr></thead>
-          <tbody>{m.data.slice(0, 25).map((d) => (
-            <tr key={d.symbol} className="border-t border-[var(--border)]">
-              <td className="p-2 font-bold">{d.symbol}</td>
-              {COLS.map((c) => { const v = val(d, c) ?? 0; return <td key={c}><button onClick={() => nav(`/monitor?symbol=${d.symbol}`)} className="tabular w-full rounded px-2 py-1.5 text-xs font-bold text-black" style={{ background: v >= 0 ? `rgba(52,211,153,${0.35 + Math.min(0.55, Math.abs(v) / 12)})` : `rgba(251,113,133,${0.35 + Math.min(0.55, Math.abs(v) / 12)})` }}>{fmtPct(v)}</button></td>; })}
+          <thead><tr><th className="p-2 text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">Ativo</th>{COLS.map((c) => <th key={c} className="p-2 text-right text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]">{c}</th>)}</tr></thead>
+          <tbody className="divide-y divide-[var(--border)]">{m.data.slice(0, 25).map((d) => (
+            <tr key={d.symbol} className="transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+              <td className="p-2 font-semibold text-[var(--text-primary)]">{d.symbol}</td>
+              {COLS.map((c) => { const v = val(d, c) ?? 0; return <td key={c}><button onClick={() => nav(`/monitor?symbol=${d.symbol}`)} className="tabular w-full rounded px-2 py-1.5 text-xs font-bold text-white shadow-sm" style={{ background: v >= 0 ? `rgba(16,185,129,${0.65 + Math.min(0.3, Math.abs(v) / 12)})` : `rgba(239,68,68,${0.65 + Math.min(0.3, Math.abs(v) / 12)})` }}>{fmtPct(v)}</button></td>; })}
             </tr>
           ))}          </tbody>
         </table></div>
@@ -89,31 +90,32 @@ function CorrelationPanel() {
       alive = false;
     };
   }, []);
-  if (!corr) return <Panel><PanelTitle>Matriz de correlação (retornos 1d)</PanelTitle><div className="text-sm text-muted">Calculando…</div></Panel>;
+  if (!corr) return <MSection title="Matriz de correlação · retornos 1d"><p className="text-sm text-[var(--text-muted)]">Calculando…</p></MSection>;
   const cellBg = (v: number | null) => {
     if (v == null) return 'var(--surface-2)';
     const t = Math.max(-1, Math.min(1, v));
-    return t >= 0 ? `rgba(52,211,153,${0.12 + t * 0.75})` : `rgba(251,113,133,${0.12 - t * 0.75})`;
+    return t >= 0 ? `rgba(16,185,129,${0.15 + t * 0.7})` : `rgba(239,68,68,${0.15 - t * 0.7})`;
   };
   return (
     <Fullscreen title="Matriz de correlação — retornos diários">
       <div className="overflow-x-auto">
         <table className="text-xs">
-          <thead><tr><th className="p-1.5"></th>{corr.symbols.map((s) => <th key={s} className="p-1.5">{s}</th>)}</tr></thead>
-          <tbody>
+          <thead><tr><th className="p-1.5"></th>{corr.symbols.map((s) => <th key={s} className="p-1.5 font-medium uppercase tracking-wider text-[var(--text-muted)]">{s}</th>)}</tr></thead>
+          <tbody className="divide-y divide-[var(--border)]">
             {corr.symbols.map((a, i) => (
-              <tr key={a}>
-                <td className="p-1.5 font-bold">{a}</td>
+              <tr key={a} className="transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                <td className="p-1.5 font-semibold tabular-nums text-[var(--text-primary)]">{a}</td>
                 {corr.symbols.map((b, j) => {
                   const v = corr.matrix[i][j];
-                  return <td key={b} className="tabular p-1.5 text-center font-bold text-black" style={{ background: cellBg(v) }}>{v == null ? '—' : v.toFixed(2)}</td>;
+                  const intense = v != null && Math.abs(v) >= 0.45;
+                  return <td key={b} className={`tabular p-1.5 text-center font-bold ${intense ? 'text-white' : 'text-[var(--text-primary)]'}`} style={{ background: cellBg(v) }}>{v == null ? '—' : v.toFixed(2)}</td>;
                 })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="mt-1 text-xs text-muted">Verde = andam juntas · vermelho = andam opostas. Alta correlação com BTC reduz diversificação.</div>
+      <div className="mt-1 border-t border-[var(--border)] pt-2 text-xs text-[var(--text-muted)]">Verde = andam juntas · vermelho = andam opostas. Alta correlação com BTC reduz diversificação.</div>
     </Fullscreen>
   );
 }
@@ -128,21 +130,20 @@ function ConverterPanel({ prices }: { prices: Record<string, number> }) {
   const pt = priceOf(to);
   const result = pf != null && pt != null && pt > 0 ? (Number(amount) * pf) / pt : null;
   const sel = (v: string, fn: (s: string) => void) => (
-    <select value={v} onChange={(e) => fn(e.target.value)} className="rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-sm">
+    <select value={v} onChange={(e) => fn(e.target.value)} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 text-sm text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]">
       <option value="USD">USD</option>
       {syms.map((s) => <option key={s} value={s}>{s}</option>)}
     </select>
   );
   return (
-    <Panel>
-      <PanelTitle>Conversor</PanelTitle>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <input value={amount} onChange={(e) => setAmount(e.target.value)} type="number" step="any" className="w-28 rounded border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5" />
+    <MSection title="Conversor">
+      <div className="flex flex-wrap items-baseline gap-3 text-sm">
+        <input value={amount} onChange={(e) => setAmount(e.target.value)} type="number" step="any" className="w-28 rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 tabular-nums text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]" />
         {sel(from, setFrom)}
-        <span className="text-muted">→</span>
+        <span className="text-[var(--text-muted)]">→</span>
         {sel(to, setTo)}
-        <strong className="tabular text-lg">{result != null ? `${fmtNum(result, 6)} ${to}` : '—'}</strong>
+        <strong className="text-lg font-semibold tabular-nums text-[var(--text-primary)]">{result != null ? `${fmtNum(result, 6)} ${to}` : '—'}</strong>
       </div>
-    </Panel>
+    </MSection>
   );
 }

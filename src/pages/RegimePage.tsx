@@ -3,7 +3,10 @@ import { useStore } from '@/stores/useStore';
 import { useCryptoMarket } from '@/services/market';
 import { useAnalysis } from '@/lib/useAnalysis';
 import { yahooChart } from '@/services/lookup';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MDot } from '@/components/minimal/MStats';
+import { MRow } from '@/components/minimal/MRow';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { fmtNum, fmtPct } from '@/lib/format';
 
@@ -71,48 +74,47 @@ export function RegimePage() {
     ['Volatility', r.volatility],
   ];
   return (
-    <div className="grid gap-3 lg:grid-cols-2">
-      <Panel>
-        <PanelTitle>Market Regime</PanelTitle>
-        {rows.map(([k, v]) => <div key={k} className="flex justify-between border-b border-[var(--border)] py-2 text-sm"><span className="text-muted">{k}</span><strong>{v}</strong></div>)}
-        <div className="mt-4 flex items-center gap-3">
-          <span className="text-sm text-muted">REGIME</span>
-          <Badge tone={tone}>{r.label}</Badge>
-          <span className="tabular text-sm">Confiança {r.confidence}%</span>
+    <div className="grid gap-6 lg:grid-cols-2">
+      <MSection title="Market regime">
+        <dl>
+          {rows.map(([k, v]) => <MRow key={k} k={k} v={v} />)}
+        </dl>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <span className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Regime</span>
+          <MDot tone={tone === 'up' ? 'up' : tone === 'down' ? 'down' : 'flat'}>{r.label}</MDot>
+          <span className="text-sm tabular-nums text-[var(--text-secondary)]">Confiança {r.confidence}%</span>
         </div>
-        <p className="mt-3 text-sm text-muted">O regime influencia a interpretação dos sinais: em RISK-OFF, sinais BUY exigem confirmação extra; em RISK-ON, sinais SELL pedem cautela redobrada. Leitura probabilística, nunca garantia.</p>
-      </Panel>
-      <Panel>
-        <PanelTitle>Como ler</PanelTitle>
-        <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-          <li><strong>STRONG RISK-ON:</strong> amplitude e momentum alinhados — ambiente mais favorável a risco.</li>
-          <li><strong>RISK-ON:</strong> viés positivo, com pontos de atenção.</li>
-          <li><strong>NEUTRAL:</strong> sem dominância — seletividade máxima.</li>
-          <li><strong>RISK-OFF:</strong> amplitude fraca — preservação de capital.</li>
-          <li><strong>STRONG RISK-OFF:</strong> estresse amplo — reduzir exposição e exigir confirmação.</li>
+        <p className="mt-3 border-t border-[var(--border)] pt-3 text-sm leading-6 text-[var(--text-secondary)]">O regime influencia a interpretação dos sinais: em RISK-OFF, sinais BUY exigem confirmação extra; em RISK-ON, sinais SELL pedem cautela redobrada. Leitura probabilística, nunca garantia.</p>
+      </MSection>
+      <MSection title="Como ler">
+        <ul className="space-y-2 text-sm leading-6 text-[var(--text-secondary)]">
+          <li><span className="font-semibold text-[var(--text-primary)]">STRONG RISK-ON:</span> amplitude e momentum alinhados — ambiente mais favorável a risco.</li>
+          <li><span className="font-semibold text-[var(--text-primary)]">RISK-ON:</span> viés positivo, com pontos de atenção.</li>
+          <li><span className="font-semibold text-[var(--text-primary)]">NEUTRAL:</span> sem dominância — seletividade máxima.</li>
+          <li><span className="font-semibold text-[var(--text-primary)]">RISK-OFF:</span> amplitude fraca — preservação de capital.</li>
+          <li><span className="font-semibold text-[var(--text-primary)]">STRONG RISK-OFF:</span> estresse amplo — reduzir exposição e exigir confirmação.</li>
         </ul>
-      </Panel>
-      <Panel>
-        <PanelTitle>Validadores externos (ouro e dólar)</PanelTitle>
-        {validators.length === 0 && <div className="text-sm text-muted">Carregando…</div>}
+      </MSection>
+      <MSection title="Validadores externos · ouro e dólar">
+        {validators.length === 0 && <div className="text-sm text-[var(--text-muted)]">Carregando…</div>}
         {validators.map((v) => {
           const b = trendBadge(v.trend30d);
           return (
-            <div key={v.symbol} className="border-b border-[var(--border)] py-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted">{v.label} <span className="font-mono text-xs">{v.symbol}</span></span>
-                <span className="flex items-center gap-2">
-                  <Badge tone={b.tone}>{b.text}</Badge>
-                  <strong className="tabular">{v.price != null ? fmtNum(v.price) : '—'}</strong>{' '}
-                  <span className="tabular" style={{ color: (v.chg ?? 0) >= 0 ? 'var(--up)' : 'var(--down)' }}>{v.chg != null ? fmtPct(v.chg) : ''}</span>
+            <div key={v.symbol} className="border-b border-[var(--border)] py-2 last:border-b-0">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-[var(--text-secondary)]">{v.label} <span className="text-xs tabular-nums text-[var(--text-muted)]">{v.symbol}</span></span>
+                <span className="flex items-baseline gap-2 text-right">
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${b.tone === 'up' ? 'text-[var(--bull)]' : b.tone === 'down' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'}`}>{b.text}</span>
+                  <span className="font-semibold tabular-nums text-[var(--text-primary)]">{v.price != null ? fmtNum(v.price) : '—'}</span>{' '}
+                  <span className={`tabular-nums font-medium ${(v.chg ?? 0) >= 0 ? 'text-[var(--bull)]' : 'text-[var(--bear)]'}`}>{v.chg != null ? fmtPct(v.chg) : ''}</span>
                 </span>
               </div>
               {v.spark.length > 1 && <div className="mt-1"><Sparkline data={v.spark} width={220} height={36} /></div>}
             </div>
           );
         })}
-        <p className="mt-2 text-xs text-muted">Ouro em alta forte sugere migração de ativos de risco para segurança — confirma viés defensivo. Dólar forte costuma pressionar criptos. Validadores, não sinais.</p>
-      </Panel>
+        <p className="mt-2 border-t border-[var(--border)] pt-2 text-xs leading-5 text-[var(--text-muted)]">Ouro em alta forte sugere migração de ativos de risco para segurança — confirma viés defensivo. Dólar forte costuma pressionar criptos. Validadores, não sinais.</p>
+      </MSection>
     </div>
   );
 }

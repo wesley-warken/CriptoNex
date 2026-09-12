@@ -204,7 +204,7 @@ class Scanner {
             try {
               const kl = await binanceKlines(`${c.symbol}USDT`, '1d', 220);
               if (kl.length < 60) return null;
-              return scoreAsset({ symbol: c.symbol, candles: kl, btcChange7d: btc, change7d: c.change7d });
+              return scoreAsset({ symbol: c.symbol, candles: kl, btcChange7d: btc, change7d: c.change7d, provider: 'binance', fetchedAt: Date.now() });
             } catch {
               return null;
             }
@@ -229,7 +229,7 @@ class Scanner {
           withoutPair.slice(i, i + HIST_CONCURRENCY).map(async (c) => {
             try {
               const closes = await coinHistory(c.id);
-              return scorePartial({ symbol: c.symbol, closes, btcChange7d: btc, change7d: c.change7d });
+              return scorePartial({ symbol: c.symbol, closes, btcChange7d: btc, change7d: c.change7d, provider: 'coingecko', fetchedAt: Date.now() });
             } catch (e) {
               if ((e as { rateLimited?: boolean }).rateLimited) deferred.push(c);
               return null;
@@ -252,7 +252,7 @@ class Scanner {
         if (this.abort.signal.aborted) return;
         try {
           const closes = await coinHistory(c.id);
-          const sc = scorePartial({ symbol: c.symbol, closes, btcChange7d: btc, change7d: c.change7d });
+          const sc = scorePartial({ symbol: c.symbol, closes, btcChange7d: btc, change7d: c.change7d, provider: 'coingecko', fetchedAt: Date.now() });
           if (sc) {
             this.results.set(sc.symbol, sc);
             this.state.withScore = this.results.size;
@@ -316,7 +316,7 @@ class Scanner {
               }
               stockFailAt.delete(it.symbol);
               this.stockYahoo.set(it.symbol, it.yahoo);
-              return scoreAsset({ symbol: it.symbol, candles: q.candles });
+              return scoreAsset({ symbol: it.symbol, candles: q.candles, provider: 'yahoo', fetchedAt: Date.now() });
             } catch {
               stockFailAt.set(it.symbol, Date.now());
               return null;
@@ -473,7 +473,7 @@ export async function scoreStockSymbols(items: StockScanItem[]): Promise<Opportu
           const q = await yahooChart(it.yahoo, '1y', '1d');
           if (q.candles.length < 60) return null;
           scanner.stockYahoo.set(it.symbol, it.yahoo);
-          return scoreAsset({ symbol: it.symbol, candles: q.candles });
+          return scoreAsset({ symbol: it.symbol, candles: q.candles, provider: 'yahoo', fetchedAt: Date.now() });
         } catch {
           return null;
         }

@@ -1,0 +1,281 @@
+/* ==========================================================================
+   CriptoNex / Pulso de Mercado — Design System Tokens
+   Dark-first financial terminal design tokens.
+   ========================================================================== */
+
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  /* Surfaces & Backgrounds — Light Minimalist (Clean porcelain/slate) */
+  --bg: #F8FAFC;
+  --surface-1: #FFFFFF;
+  --surface-2: #F1F5F9;
+  --surface-3: #E2E8F0;
+
+  /* Hairline Borders (Crisp, subtle) */
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --border-strong: #CBD5E1;
+
+  /* Typography Colors — High readability & contrast */
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+
+  /* Institutional Semantic Colors */
+  --bull: #059669;
+  --bull-bg: rgba(5, 150, 105, 0.08);
+  --bull-text: #047857;
+
+  --bear: #E11D48;
+  --bear-bg: rgba(225, 29, 72, 0.08);
+  --bear-text: #BE123C;
+
+  --neutral: #64748B;
+  --neutral-bg: rgba(100, 116, 139, 0.08);
+  --neutral-text: #475569;
+
+  --warn: #D97706;
+  --warn-bg: rgba(217, 119, 6, 0.08);
+  --warn-text: #B45309;
+
+  /* Refined Brand & Focus */
+  --brand: #0284C7;
+  --brand-muted: rgba(2, 132, 199, 0.08);
+  --brand-glow: transparent;
+  --brand-hover: #0369A1;
+  --focus-ring: #0284C7;
+
+  /* Backward compatibility mappings */
+  --surface: var(--surface-1);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--brand);
+  --accent-2: #7C3AED;
+  --up: var(--bull);
+  --down: var(--bear);
+  --glass-blur: none;
+}
+
+[data-theme='minimal'] {
+  color-scheme: dark;
+
+  /* Surfaces & Backgrounds — Flat Charcoal/Zinc Minimal */
+  --bg: #09090B;
+  --surface-1: #111115;
+  --surface-2: #18181D;
+  --surface-3: #22222A;
+
+  /* Hairline Borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-strong: rgba(255, 255, 255, 0.15);
+
+  /* Typography Colors */
+  --text-primary: #F4F4F5;
+  --text-secondary: #A1A1AA;
+  --text-muted: #71717A;
+
+  /* Semantic Colors */
+  --bull: #10B981;
+  --bull-bg: rgba(16, 185, 129, 0.10);
+  --bull-text: #34D399;
+
+  --bear: #F43F5E;
+  --bear-bg: rgba(244, 63, 94, 0.10);
+  --bear-text: #FB7185;
+
+  --neutral: #71717A;
+  --neutral-bg: rgba(113, 113, 122, 0.10);
+  --neutral-text: #A1A1AA;
+
+  --warn: #F59E0B;
+  --warn-bg: rgba(245, 158, 11, 0.10);
+  --warn-text: #FBBF24;
+
+  /* Brand Accent */
+  --brand: #38BDF8;
+  --brand-muted: rgba(56, 189, 248, 0.10);
+  --brand-glow: transparent;
+  --brand-hover: #0EA5E9;
+  --focus-ring: #38BDF8;
+
+  --surface: var(--surface-1);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--brand);
+  --accent-2: #38BDF8;
+  --up: var(--bull);
+  --down: var(--bear);
+  --glass-blur: none;
+}
+
+[data-theme='dark'],
+[data-theme='nex'] {
+  color-scheme: dark;
+
+  /* Surfaces & Backgrounds */
+  --bg: #0A0E14;
+  --surface-1: #101620;
+  --surface-2: #161E2B;
+  --surface-3: #1D2636;
+  
+  /* Hairline Borders */
+  --border: rgba(255, 255, 255, 0.09);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Typography Colors */
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+
+  /* Fixed Semantic Colors */
+  --bull: #10B981;
+  --bull-bg: rgba(16, 185, 129, 0.12);
+  --bull-text: #10B981;
+
+  --bear: #F43F5E;
+  --bear-bg: rgba(244, 63, 94, 0.12);
+  --bear-text: #F43F5E;
+
+  --neutral: #71717A;
+  --neutral-bg: rgba(113, 113, 122, 0.12);
+  --neutral-text: #A1A1AA;
+
+  --warn: #F59E0B;
+  --warn-bg: rgba(245, 158, 11, 0.12);
+  --warn-text: #F59E0B;
+
+  /* Brand Color */
+  --brand: #00F0FF;
+  --brand-muted: rgba(0, 240, 255, 0.12);
+  --brand-glow: rgba(0, 240, 255, 0.20);
+  --brand-hover: #22D3EE;
+  --focus-ring: #00F0FF;
+
+  --surface: var(--surface-1);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--brand);
+  --accent-2: #8B5CF6;
+  --up: var(--bull);
+  --down: var(--bear);
+  --glass-blur: none;
+}
+
+[data-theme='neon'] {
+  color-scheme: dark;
+  --bg: #04060B;
+  --surface-1: #080D17;
+  --surface-2: #0E1626;
+  --surface-3: #15223A;
+  --border: rgba(0, 255, 200, 0.18);
+  --border-subtle: rgba(0, 255, 200, 0.08);
+  --border-strong: rgba(0, 255, 200, 0.35);
+  --text-primary: #DCFFEC;
+  --text-secondary: #4FD8BD;
+  --text-muted: #389B87;
+  --bull: #00FF9D;
+  --bull-bg: rgba(0, 255, 157, 0.14);
+  --bull-text: #00FF9D;
+  --bear: #FF2D78;
+  --bear-bg: rgba(255, 45, 120, 0.14);
+  --bear-text: #FF2D78;
+  --neutral: #5E7C8D;
+  --neutral-bg: rgba(94, 124, 141, 0.14);
+  --neutral-text: #7A9EB2;
+  --warn: #FFE600;
+  --warn-bg: rgba(255, 230, 0, 0.14);
+  --warn-text: #FFE600;
+  --brand: #00FFC8;
+  --brand-muted: rgba(0, 255, 200, 0.14);
+  --brand-glow: rgba(0, 255, 200, 0.30);
+  --brand-hover: #34D399;
+  --focus-ring: #00FFC8;
+  --surface: var(--surface-1);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--brand);
+  --accent-2: #FF3DF0;
+  --up: var(--bull);
+  --down: var(--bear);
+  --glass-blur: none;
+}
+
+[data-theme='brutal'] {
+  color-scheme: light;
+  --bg: #F7F3E8;
+  --surface-1: #FFFDF5;
+  --surface-2: #EFE7D2;
+  --surface-3: #E4DAC0;
+  --border: #141414;
+  --border-subtle: #737373;
+  --border-strong: #000000;
+  --text-primary: #141414;
+  --text-secondary: #3E3A32;
+  --text-muted: #5C564A;
+  --bull: #166534;
+  --bull-bg: rgba(22, 101, 52, 0.14);
+  --bull-text: #166534;
+  --bear: #B91C1C;
+  --bear-bg: rgba(185, 28, 28, 0.14);
+  --bear-text: #B91C1C;
+  --neutral: #5C564A;
+  --neutral-bg: rgba(92, 86, 74, 0.14);
+  --neutral-text: #403B32;
+  --warn: #92400E;
+  --warn-bg: rgba(146, 64, 14, 0.14);
+  --warn-text: #92400E;
+  --brand: #4338CA;
+  --brand-muted: rgba(67, 56, 202, 0.14);
+  --brand-glow: rgba(67, 56, 202, 0.25);
+  --brand-hover: #3730A3;
+  --focus-ring: #4338CA;
+  --surface: var(--surface-1);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--brand);
+  --accent-2: #BE185D;
+  --up: var(--bull);
+  --down: var(--bear);
+  --glass-blur: none;
+}
+
+/* ==========================================================================
+   Utility classes & Data-Dense Typography
+   ========================================================================== */
+
+.tabular,
+.font-mono-tabular {
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Live price tick flash micro-interaction */
+@keyframes flash-green {
+  0% { background-color: rgba(16, 185, 129, 0.28); color: #10B981; }
+  100% { background-color: transparent; }
+}
+
+@keyframes flash-red {
+  0% { background-color: rgba(244, 63, 94, 0.28); color: #F43F5E; }
+  100% { background-color: transparent; }
+}
+
+.flash-up {
+  animation: flash-green 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.flash-down {
+  animation: flash-red 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Base surface classes */
+.bg-surface-1 { background-color: var(--surface-1); }
+.bg-surface-2 { background-color: var(--surface-2); }
+.bg-surface-3 { background-color: var(--surface-3); }
+.border-subtle { border-color: var(--border-subtle); }
+.border-surface { border-color: var(--border); }
+.border-strong { border-color: var(--border-strong); }

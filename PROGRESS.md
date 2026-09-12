@@ -1,6 +1,19 @@
 # Pulso de Mercado — Registro de Progresso
 
-> Última atualização: 09/09/2026
+> Última atualização: 12/09/2026
+
+## Oportunidades por horizonte — setups 3–4 meses (12/09/2026)
+
+- [x] Nova experiência OPORTUNIDADES (`pages/Opportunities.tsx` reescrita, mesma rota): horizontes 1–7d/1–4sem/1–3m/3–4m (padrão)/6–12m, 4 setups LONG (continuação, pullback, rompimento, momentum) + reversão com gate + observação
+- [x] Novo `engine/horizon/` (types/horizons/setups/swingPlan/rank): pesos por horizonte somando 100 e documentados, zona de entrada [−0.5·ATR, entrada], T3 via R3/S3, cenários bull/base/bear com níveis reais, invalidação com valores reais, ranking com fórmula documentada
+- [x] Reuso total, sem segundo motor: scoreAsset, snapshot, consensusOf, buildPlan, floorPivots/aggregateClosed, riskReward/positionSize, effectiveTier/convictionOf, stretchPercentiles, fetchMtfCandles/resampleCandles, scanner (stage-1), regime, walk-forward (evidência por tier + N)
+- [x] Stage-2 próprio (`services/horizon.ts`): 1d+1w por candidato (teto 120, pares conhecidos primeiro, concorrência 2, IDB 60min, pausa via AbortSignal, 1w via reamostragem quando necessário)
+- [x] Filtros: setup, convicção (Todas/ELITE/FORTE), regime (Todos/Favorável/Neutro), R:R (Todas/2.0/2.5/3.0), score (60/70/80), liquidez (Todas/Alta/Média: $1bi+$50mi / $100mi+$5mi), busca
+- [x] Cards: entrada/stop/T1-T3, R:R trio, cenário base, tier, zona com distância e flag estendida, porquê/riscos, invalidação, evidência com N, DQ (score/fonte/BRT/idade/candles/fresh), sizing opcional (sem capital presumido), confluência/stretch
+- [x] Comparação 2–5 com melhor por critério (R:R, tendência, volume, evidência) sem declarar "melhor investimento"; detalhe expande na linha; Monitor abre via link (sem segunda página de gráfico)
+- [x] Honestidade: banner "Nenhuma oportunidade de alta qualidade" quando zero ELITE/FORTE; "N/A" sem plano; "evidência insuficiente" sem N≥30; linguagem "setup identificado/plano hipotético"
+- [x] 31 testes novos (horizons/setups/swingPlan/rank/service) — suite 239/239, `tsc` limpo
+- [x] Limitações: LONG-only v1; evidência por tier (proxy 20d); long tail sem par mapeado fica no 1d; calibração ajusta gates, não pesos; stats pessoais saíram desta página (motor intacto no Portfolio)
 
 ---
 
@@ -227,6 +240,37 @@ Aplicação local de análise de criptos e ações com 19 páginas funcionais, 4
 - [x] Estados por voto de RSI/MACD/EMA/SMA/Supertrend (eleitorados fast/full/slow por perna), mudança temporal (candle anterior → atual), fonte única por linha (10/09/2026)
 - [x] Cold-start instantâneo (% legado) + upgrade progressivo p/ consenso; janelas e bandas calibráveis em `TREND_MODE_WINDOWS`
 - [x] 6 testes novos (pullback curto-Baixa/longo-Alta, transição visível, stablecoin abstém) — 113/113, `tsc` limpo
+
+### 4h de tokens sem par na Binance spot (ex.: HYPE)
+- [x] Causa (diagnóstico ao vivo 11/09/2026): Binance spot não lista HYPE (`Invalid symbol`, só perp); Yahoo devolve 200 com zero candles p/ HYPE; Coinbase rejeitava 4h (`14400` não existe na API — granularidades válidas 60/300/900/3600/21600/86400), então o 4h dependia só da Kraken e caía quando ela entrava em cooldown
+- [x] `coinbasePlan`: 4h busca 1h e reamostra em sessões reais de parede (HYPE-USD existe na Coinbase, confirmado); `resampleCandles`/`H4_MS` movidos p/ `multiKlines.ts` (re-exportados em `assetCandles.ts`, sem quebrar testes)
+- [x] Erro honesto: "sem dados de {tf} em nenhuma fonte agora (tente outro timeframe)" em vez de "par deslistado?"
+- [x] 1 teste novo (`coinbasePlan`) — 127/127 passando, `tsc` limpo
+
+### Radar — S/R no padrão da referência (Suporte 1–3 / Resistência 1–3)
+- [x] Aba S/R refeita: era Máx/Mín 30d + dist. topo; agora Moeda/Preço atual (pílula âmbar)/S1/S2/S3/R1/R2/R3/Fav, tudo ordenável (11/09/2026)
+- [x] Níveis via mesmo motor do Monitor: `aggregateClosed(kl, 5)` + `floorPivots` (base semanal, candles fechados)
+- [x] 1 teste novo (ordenação S3<S2<S1<R1<R2<R3 em diários sintéticos) — 123/123 passando, `tsc` limpo, print headless sem erros (feed de klines lento no sandbox; no navegador real os níveis preenchem com cache+rede)
+
+### Radar — Padrões gráficos (análise técnica filtrável)
+- [x] Nova aba `Padrões` no Radar: todos os padrões por moeda (topo/fundo duplo, canais, cunha, rompimentos, S/R, RSI) com sentimento, estágio, firstSeen e filtros por padrão/sentimento (11/09/2026)
+- [x] Feed mostra TODOS os padrões da moeda (não só o top-1): "Aproximando-se da Resistência" nunca mais fica escondido; filtro lista todos com contagem
+- [x] Novo indicador `sr` no motor do Monitor (dist. % ao suporte/resistência de 20 em 1h/4h/1d/1s) + 5 presets: Aproximando da Resistência/Suporte, Rompimento de Resistência, Sobrevendido no Suporte, Sobrecomprado na Resistência
+- [x] Construtor de filtro próprio ganha S/R automaticamente (lê `MON_INDICATORS`/`MON_FIELDS` dinâmicos)
+- [x] 3 testes novos S/R — 122/122 passando, `tsc` limpo, print headless sem erros
+- [x] Polaridade (11/09/2026): "Resistência virou Suporte" (Bullish) e "Suporte virou Resistência" (Bearish) — nível antigo (extremas de 20 barras, fora do ruído recente) + rompimento nos últimos 15 + reteste colado ±1,5%; pavio que atravessa e fecha de volta = Confirmado; exige range ≥2% (sem spam em stablecoin); aparecem na aba Padrões com filtro automático
+- [x] 3 testes novos de polaridade — 126/126 passando, `tsc` limpo
+- [x] Pipeline de cunhas VERIFICADAS 7/7 (11/09/2026): novo `src/engine/wedges.ts` — sem "meia cunha"; só vela fechada; portas: 3+ topos/fundos, sequência, inclinação, convergência, ápice ≤30 velas (reprova canal paralelo), toques ±1%, vida ≥15 + sem cruzamento
+- [x] Heurística antiga ("Cunha Descendente" 55%) removida; selos "Cunha Descendente/Ascendente Verificada" (Bullish/Bearish), estados formando→Emergente/rompida→Confirmado, invalidada sai do feed (selo revogável)
+- [x] Qualidade 0–100 só p/ ranquear + certeza medida (`wedgeBreakStats`: % histórico de rompimento a favor, anexado no detalhe quando n≥3) + log de selos emitido/confirmado/revogado em IDB local (`syncWedgeLog`)
+- [x] 11 testes novos (8 wedges + 3 padrões incl. canal-paralelo-rejeitado) — 137/137 passando, `tsc` limpo
+
+### Radar — confiança nos dados (builder + idade + porquê)
+- [x] Construtor trava TF inválido: tendência só oferece 1h/4h/1d (1s nunca teve consenso e gerava filtro que nunca casa) + aviso inline (11/09/2026)
+- [x] Hints de unidade/escala em todos os campos do construtor (RSI 0–100, S/R em % com ≤0 = rompido, MA diferença absoluta etc.)
+- [x] Selo de idade: "calculado há X min" em todas as abas com indicadores + Monitor ("N moedas avaliadas em Ys · calculado há Z")
+- [x] Coluna "porquê" no Monitor: cada linha mostra valor atual vs alvo por condição (`whyFilter`: "RSI 4 horas 25 ≤ 30 · ...")
+- [x] 1 teste novo (`whyFilter`) — 138/138 passando, `tsc` limpo, prints do construtor validados (TF travado + hints visíveis, zero erros)
 
 ### Travamento em 104/200 (lote congelado)
 - [x] Causa: espera ilimitada no rate-limit da CoinGecko (espiral de 429 segurava o lote inteiro) (10/09/2026)

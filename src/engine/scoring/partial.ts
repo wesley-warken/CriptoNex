@@ -8,6 +8,8 @@ export interface PartialInput {
   btcChange7d?: number | null;
   change7d?: number | null;
   regime?: MarketRegime | null;
+  provider?: string | null;
+  fetchedAt?: number | null;
 }
 
 const last = (arr: number[]): number | null => (arr.length ? arr[arr.length - 1] : null);
@@ -119,5 +121,9 @@ export function scorePartial(input: PartialInput): OpportunityScore | null {
     // Sem OHLC não há pivôs S/R honestos → sem plano (badge na UI).
     plan: null,
     stretchRaw: sma20 != null && sma20 > 0 ? ((price - sma20) / sma20) * 100 : null,
+    provider: input.provider ?? null,
+    fetchedAt: input.fetchedAt ?? null,
+    scoredAt: Date.now(),
+    confidenceBasis: 'heuristic-v1',
   };
 }

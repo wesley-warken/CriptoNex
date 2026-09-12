@@ -5,7 +5,9 @@ import { useCryptoMarket } from '@/services/market';
 import { useAnalysis } from '@/lib/useAnalysis';
 import { useUniverseStocks } from '@/services/universeHooks';
 import { useBrapiQuotes, useYahooQuotes } from '@/services/stockQuotes';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox, Empty } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MEmpty } from '@/components/minimal/MEmpty';
 import { ScoreAudit } from '@/components/analysis/ScoreAudit';
 import { AssetSearch } from '@/components/analysis/AssetSearch';
 import { beep } from '@/lib/alerts';
@@ -54,27 +56,28 @@ export function Watchlist() {
 
   if (m.loading && !m.data.length) return <Skeleton className="h-64" />;
   if (m.error && !m.data.length && !rows.some((r) => r.price != null)) return <ErrorBox message={m.error} onRetry={m.reload} />;
-  if (!watchlist.length) return <Empty title="Watchlist vazia" hint="Adicione ativos pelo Radar (+W) ou pela busca global." />;
+  if (!watchlist.length) return <MEmpty title="Watchlist vazia" hint="Adicione ativos pelo Radar (+W) ou pela busca global." />;
 
   const destOf = (s: string) => `/monitor?symbol=${encodeURIComponent(s)}`;
 
   return (
     <div className="space-y-3">
-      <Panel>
-        <PanelTitle>Watchlist — alertas ±5% {muted ? '(mudo)' : '(som ativo)'}</PanelTitle>
-        {rows.map((r) => {
-          const sc = a.bySym.get(r.symbol);
-          return (
-            <div key={r.symbol} className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] py-2 text-sm">
-              <Link to={destOf(r.symbol)} className="w-24 truncate font-bold hover:underline">{r.symbol}</Link>
-              <span className="tabular">{r.price != null ? (r.crypto ? fmtUSD(r.price) : fmtNum(r.price)) : '…'}</span>
-              <span className="tabular" style={{ color: (r.chg ?? 0) >= 0 ? 'var(--up)' : 'var(--down)' }}>{r.chg != null ? fmtPct(r.chg) : ''}</span>
-              {sc && <><ScoreAudit score={sc} /><Badge tone={sc.signal === 'BUY' ? 'up' : sc.signal === 'SELL' ? 'down' : 'warn'}>{sc.signal} · {sc.confidence}%</Badge></>}
-              <button onClick={() => toggleWatch(r.symbol)} className="ml-auto text-xs text-muted">remover</button>
-            </div>
-          );
-        })}
-      </Panel>
+      <MSection title={`Watchlist — alertas ±5% ${muted ? '(mudo)' : '(som ativo)'}`}>
+        <div className="divide-y divide-[var(--border)]">
+          {rows.map((r) => {
+            const sc = a.bySym.get(r.symbol);
+            return (
+              <div key={r.symbol} className="flex flex-wrap items-center gap-3 py-2 text-sm text-[var(--text-secondary)] transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                <Link to={destOf(r.symbol)} className="w-24 truncate font-bold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline active:scale-[0.98]">{r.symbol}</Link>
+                <span className="tabular-nums text-[var(--text-primary)]">{r.price != null ? (r.crypto ? fmtUSD(r.price) : fmtNum(r.price)) : <span className="text-[var(--text-muted)]">—</span>}</span>
+                <span className={`tabular-nums font-medium ${(r.chg ?? 0) >= 0 ? 'text-[var(--bull)]' : 'text-[var(--bear)]'}`}>{r.chg != null ? fmtPct(r.chg) : <span className="text-[var(--text-muted)]">—</span>}</span>
+                {sc && <><ScoreAudit score={sc} /><span className={`text-xs font-semibold tabular-nums ${sc.signal === 'BUY' ? 'text-[var(--bull)]' : sc.signal === 'SELL' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'}`}>{sc.signal} · {sc.confidence}%</span></>}
+                <button onClick={() => toggleWatch(r.symbol)} className="ml-auto text-xs uppercase tracking-wider text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--bear)] active:scale-[0.98]">remover</button>
+              </div>
+            );
+          })}
+        </div>
+      </MSection>
       <AssetSearch />
     </div>
   );

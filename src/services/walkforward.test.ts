@@ -3,13 +3,22 @@ import { tierHit, tierAvgRR, suggestGates } from './walkforward';
 import type { WFStats } from '@/workers/walkforward';
 
 function stats(): WFStats {
+  const perTier = {
+    ELITE: { n: 100, byHorizon: { 10: { n: 100, wins: 55 }, 20: { n: 100, wins: 40 } }, rrSum: 120, rrN: 100 },
+    FORTE: { n: 200, byHorizon: { 10: { n: 200, wins: 110 }, 20: { n: 200, wins: 100 } }, rrSum: 150, rrN: 200 },
+    FRACO: { n: 10, byHorizon: { 10: { n: 10, wins: 9 } }, rrSum: 5, rrN: 10 },
+  };
   return {
-    perTier: {
-      ELITE: { n: 100, byHorizon: { 10: { n: 100, wins: 55 }, 20: { n: 100, wins: 40 } }, rrSum: 120, rrN: 100 },
-      FORTE: { n: 200, byHorizon: { 10: { n: 200, wins: 110 }, 20: { n: 200, wins: 100 } }, rrSum: 150, rrN: 200 },
-      FRACO: { n: 10, byHorizon: { 10: { n: 10, wins: 9 } }, rrSum: 5, rrN: 10 },
+    perTier,
+    inSample: {
+      ELITE: { n: 70, byHorizon: { 20: { n: 70, wins: 30 } }, rrSum: 80, rrN: 70 },
     },
+    outOfSample: {
+      ELITE: { n: 30, byHorizon: { 20: { n: 30, wins: 10 } }, rrSum: 40, rrN: 30 },
+    },
+    isRatio: 0.7,
     symbols: 5,
+    skippedSymbols: 0,
     steps: 310,
     horizons: [10, 20],
     stride: 2,
@@ -24,6 +33,11 @@ describe('tierHit / tierAvgRR', () => {
     expect(tierHit(stats(), 'INEXISTENTE', 20)).toBeNull();
     expect(tierAvgRR(stats(), 'ELITE')).toEqual({ rr: 1.2, n: 100 });
     expect(tierAvgRR(stats(), 'FRACO')).toBeNull();
+  });
+  it('src in/out lê IS e OOS', () => {
+    expect(tierHit(stats(), 'ELITE', 20, 'in')).toEqual({ hit: 30 / 70, n: 70 });
+    expect(tierHit(stats(), 'ELITE', 20, 'out')).toEqual({ hit: 10 / 30, n: 30 });
+    expect(tierHit(stats(), 'FORTE', 20, 'in')).toBeNull();
   });
 });
 

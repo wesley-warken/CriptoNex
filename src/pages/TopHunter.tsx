@@ -7,7 +7,9 @@ import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { coinHistory } from '@/services/history';
 import { detectPatterns } from '@/engine/patterns';
 import { cycleReading, type CycleZone } from '@/engine/cycle';
-import { Panel, PanelTitle, Badge, Skeleton, ErrorBox } from '@/components/ui/kit';
+import { Skeleton, ErrorBox } from '@/components/ui/kit';
+import { MSection } from '@/components/minimal/MSection';
+import { MEmpty } from '@/components/minimal/MEmpty';
 import { Fullscreen } from '@/components/charts/Fullscreen';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip } from 'recharts';
 import { snapshot, calcEMA } from '@/engine/indicators';
@@ -114,19 +116,19 @@ export function TopHunter() {
   return (
     <div className="space-y-3">
       <Fullscreen title="Caçador de topos e fundos — posição no ciclo">
-        <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-          <select value={asset} onChange={(e) => setAsset(e.target.value)} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1.5 font-bold">
+        <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <select value={asset} onChange={(e) => setAsset(e.target.value)} className="rounded-md border border-[var(--border)] bg-[var(--surface-1)] px-2 py-1.5 font-semibold text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out focus:border-[var(--brand)]">
             {CRYPTO_ASSETS.map((x) => <option key={x.symbol} value={x.symbol}>{x.symbol} — {x.name}</option>)}
           </select>
-          <div className="flex overflow-hidden rounded-lg border border-[var(--border)] text-xs">
-            {RANGES.map((r) => <button key={r.k} onClick={() => setRange(r.k)} className={r.k === range ? 'bg-[var(--accent)] px-3 py-1.5 font-bold text-black' : 'px-3 py-1.5 text-muted'}>{r.label}</button>)}
+          <div className="flex gap-4 text-xs">
+            {RANGES.map((r) => <button key={r.k} onClick={() => setRange(r.k)} className={r.k === range ? 'font-semibold tabular-nums text-[var(--brand)] transition-colors duration-150 ease-out active:scale-[0.98]' : 'tabular-nums text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]'}>{r.label}</button>)}
           </div>
           {reading && (
-            <span className="ml-auto flex items-center gap-2">
-              <span className="tabular text-2xl font-bold" style={{ color: hot ? 'var(--warn)' : 'var(--muted)' }}>{reading.pct}%</span>
-              <Badge tone={reading.zone === 'topo-risco' || reading.zone === 'euforia' ? 'warn' : undefined}>
+            <span className="ml-auto flex items-baseline gap-2">
+              <span className={`text-2xl font-semibold tabular-nums ${hot ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'}`}>{reading.pct}%</span>
+              <span className={`text-xs font-semibold uppercase tracking-wider ${reading.zone === 'topo-risco' || reading.zone === 'euforia' ? 'text-[var(--bear)]' : reading.zone === 'acumulacao' ? 'text-[var(--bull)]' : 'text-[var(--text-secondary)]'}`}>
                 {reading.zone === 'topo-risco' ? 'risco de topo' : reading.zone === 'euforia' ? 'euforia' : reading.zone === 'acumulacao' ? 'possível fundo' : 'neutro'}
-              </Badge>
+              </span>
             </span>
           )}
         </div>
@@ -136,39 +138,38 @@ export function TopHunter() {
               <XAxis dataKey="t" fontSize={10} minTickGap={40} />
               <YAxis fontSize={10} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
               <Tooltip formatter={(v, name) => (name === 'pct' ? [`${v}%`, 'posição no range'] : [v, name])} labelFormatter={(l) => `Dia ${l}`} />
-              <Area type="monotone" dataKey="pct" stroke={hot ? '#f59e0b' : '#9aa7b4'} fill={hot ? '#f59e0b' : '#9aa7b4'} fillOpacity={0.55} />
+              <Area type="monotone" dataKey="pct" stroke={hot ? 'var(--bear)' : 'var(--brand)'} fill={hot ? 'var(--bear)' : 'var(--brand)'} fillOpacity={0.25} />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
-          <div className="py-8 text-center text-sm text-muted">Sem histórico suficiente para este ativo/período.</div>
+          <MEmpty title="Sem histórico suficiente" hint="Sem histórico suficiente para este ativo/período." />
         )}
-        {reading && <p className="mt-2 text-xs text-muted">{reading.note} Leitura probabilística com acertos e erros no passado — o mercado é soberano.</p>}
+        {reading && <p className="mt-2 border-t border-[var(--border)] pt-2 text-xs leading-5 text-[var(--text-muted)]">{reading.note} Leitura probabilística com acertos e erros no passado — o mercado é soberano.</p>}
       </Fullscreen>
 
-      <Panel>
-        <PanelTitle>Padrões, sentimento e estágio — top 25</PanelTitle>
+      <MSection title="Padrões, sentimento e estágio · top 25">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
-            <thead><tr className="text-left text-xs text-muted"><th className="p-2">Moeda</th><th className="p-2">Atualizado</th><th className="p-2">Sentimento</th><th className="p-2">Estágio</th><th className="p-2">Padrão gráfico</th><th className="p-2">Análise</th></tr></thead>
-            <tbody>
+            <thead><tr className="text-left text-xs font-medium uppercase tracking-wider text-[var(--text-muted)]"><th className="p-2">Moeda</th><th className="p-2">Atualizado</th><th className="p-2">Sentimento</th><th className="p-2">Estágio</th><th className="p-2">Padrão gráfico</th><th className="p-2 text-right">Análise</th></tr></thead>
+            <tbody className="divide-y divide-[var(--border)]">
               {patterns.map(({ d, top, signal }) => (
-                <tr key={d.symbol} className="border-t border-[var(--border)]">
-                  <td className="p-2 font-bold">{d.symbol} <span className="text-xs font-normal text-muted">{d.name}</span></td>
-                  <td className="tabular p-2 text-xs text-muted">{(() => { const kl = m.candles[d.symbol] ?? []; const t = kl.length ? kl[kl.length - 1].time : null; return t ? new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; })()}</td>
+                <tr key={d.symbol} className="transition-colors duration-150 ease-out hover:bg-[var(--surface-2)]">
+                  <td className="p-2 font-semibold text-[var(--text-primary)]">{d.symbol} <span className="text-xs font-normal text-[var(--text-muted)]">{d.name}</span></td>
+                  <td className="p-2 text-xs tabular-nums text-[var(--text-muted)]">{(() => { const kl = m.candles[d.symbol] ?? []; const t = kl.length ? kl[kl.length - 1].time : null; return t ? new Date(t).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; })()}</td>
                   <td className="p-2">
-                    <Badge tone={!top ? 'warn' : top.sentiment === 'Bullish' ? 'up' : top.sentiment === 'Bearish' ? 'down' : 'warn'}>
+                    <span className={`text-xs font-semibold uppercase tracking-wider ${!top ? (signal === 'BUY' ? 'text-[var(--bull)]' : signal === 'SELL' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]') : top.sentiment === 'Bullish' ? 'text-[var(--bull)]' : top.sentiment === 'Bearish' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'}`}>
                       {!top ? (signal === 'BUY' ? 'Bullish' : signal === 'SELL' ? 'Bearish' : 'Neutro') : top.sentiment === 'Bullish' ? 'Bullish' : top.sentiment === 'Bearish' ? 'Bearish' : 'Neutro'}
-                    </Badge>
+                    </span>
                   </td>
-                  <td className="p-2 text-muted">{top?.stage ?? '—'}</td>
-                  <td className="p-2">{top ? `${top.pattern} (${top.confidence}%)` : <span className="text-muted">sem padrão claro</span>}</td>
-                  <td className="p-2"><Link to={`/monitor?symbol=${d.symbol}`} className="rounded border border-[var(--border)] px-2 py-0.5 text-xs">Abrir</Link></td>
+                  <td className="p-2 text-[var(--text-secondary)]">{top?.stage ?? '—'}</td>
+                  <td className="p-2 tabular-nums text-[var(--text-secondary)]">{top ? `${top.pattern} (${top.confidence}%)` : <span className="text-[var(--text-muted)]">sem padrão claro</span>}</td>
+                  <td className="p-2 text-right"><Link to={`/monitor?symbol=${d.symbol}`} className="text-xs text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--brand)] active:scale-[0.98]">Abrir</Link></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </Panel>
+      </MSection>
 
       <div className="grid gap-3 md:grid-cols-2">
         {m.data.map((d) => {
@@ -197,13 +198,18 @@ export function TopHunter() {
           if (!events.length) return null;
           const score = a.bySym.get(d.symbol);
           return (
-            <Panel key={d.symbol}>
-              <PanelTitle right={score && <Badge tone={score.signal === 'BUY' ? 'up' : 'down'}>{score.signal}</Badge>}>
-                <Link to={`/monitor?symbol=${d.symbol}`} className="hover:underline">{d.symbol}</Link>
-              </PanelTitle>
-              {events.map((e) => <div key={e} className="py-0.5 text-sm">{e}</div>)}
-              {score && <div className="mt-1 text-xs text-muted">Score {score.score} · conf {score.confidence}% · linguagem probabilística: confirmação por preço/volume ainda necessária.</div>}
-            </Panel>
+            <div key={d.symbol} className="rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <Link to={`/monitor?symbol=${d.symbol}`} className="text-sm font-semibold tabular-nums text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] active:scale-[0.98]">{d.symbol}</Link>
+                {score && (
+                  <span className={`text-xs font-semibold uppercase tracking-wider ${score.signal === 'BUY' ? 'text-[var(--bull)]' : score.signal === 'SELL' ? 'text-[var(--bear)]' : 'text-[var(--text-secondary)]'}`}>
+                    {score.signal}
+                  </span>
+                )}
+              </div>
+              {events.map((e) => <div key={e} className="py-0.5 text-sm text-[var(--text-secondary)]">{e}</div>)}
+              {score && <div className="mt-1 text-xs tabular-nums text-[var(--text-muted)]">Score {score.score} · conf {score.confidence}% · linguagem probabilística: confirmação por preço/volume ainda necessária.</div>}
+            </div>
           );
         })}
       </div>

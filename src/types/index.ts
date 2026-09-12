@@ -77,6 +77,14 @@ export interface OpportunityScore {
   stretchRaw?: number | null;
   /** Confluência inter-TF do stage 2 do scanner — null antes de calculado. */
   confluence?: ConfluenceData | null;
+  /** Origem do dado que gerou o score (ex: 'binance', 'yahoo') — null desconhecida. */
+  provider?: string | null;
+  /** Quando o dado foi obtido (epoch ms) — null desconhecido. */
+  fetchedAt?: number | null;
+  /** Quando o score foi calculado (epoch ms). */
+  scoredAt?: number;
+  /** Base da métrica confidence: heurística documentada, NÃO probabilidade. */
+  confidenceBasis?: 'heuristic-v1';
 }
 export interface PlanData {
   entry: number;

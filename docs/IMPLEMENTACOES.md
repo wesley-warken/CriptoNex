@@ -90,3 +90,15 @@ npm run test    # 208/208
 npx tsc --noEmit
 npm run build
 ```
+
+## 11. Oportunidades por horizonte — setups 3–4 meses
+
+- **O que é:** a rota `/oportunidades` virou a central de setups: seletor de horizonte (default 3–4 meses), classificação em 4 setups LONG (+reversão com gate e observação), zona de entrada, stop estrutural, 3 alvos, R:R trio, cenários bull/base/bear, invalidação com valores reais, evidência walk-forward por tier com N, comparação 2–5, sizing opcional e filtros (setup/convicção/regime/R:R/score/liquidez/busca).
+- **Como classifica:** `engine/horizon/setups.ts` (regras explícitas sobre tendência 1W/1D via `consensusOf`, RSI, MACD, volume, stretch p90 e distância da máxima 20d).
+- **Como ranqueia:** `engine/horizon/rank.ts` — soma ponderada de 8 fatores com pesos por horizonte em `horizons.ts` (somam 100); tiers via `effectiveTier` (gates reais de score/conf/DQ/confluência/stretch).
+- **Como calcula entrada/stop/alvos:** `engine/horizon/swingPlan.ts` — reusa `buildPlan` (pivôs S/R) + `riskReward`; T3 via R3/S3; zona [−0.5·ATR, entrada]; estendida = stretch ≥ p90.
+- **Sizing:** reusa `positionSize` do risk engine; sem capital presumido.
+- **Stage-2** (`services/horizon.ts`): busca 1d+1w só dos top pontuados no 1d (teto 120, pares conhecidos primeiro, cache IDB 60min, abortável); sem dados → pula com motivo, sem inventar.
+- **Evidência:** `tierHit/tierAvgRR` do walk-forward existente (proxy 20d, label honesto) + classes N<30 insuficiente / 30–99 limitada / 100–299 moderada / 300+ forte; sem amostra → "evidência insuficiente".
+- **Regime:** `computeRegime` existente; header MERCADO AGORA (BTC/altcoins/regime); filtro Favorável/Neutro; RISK-OFF reduz e avisa.
+- **Limitações:** LONG-only; tiers precisam de confluência stage-2 p/ ELITE; long tail sem par fica no score 1d; dados parciais (só closes) não geram plano.

@@ -1,8 +1,11 @@
 import type { Candle } from '@/types';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import type { BinanceInterval } from '@/services/providers/binance';
-import { multiKlines, type KlineInterval } from '@/services/providers/multiKlines';
+import { multiKlines, resampleCandles, H4_MS, type KlineInterval } from '@/services/providers/multiKlines';
 import { yahooChart } from '@/services/lookup';
+
+// Re-exportados para compatibilidade (testes e chamadores antigos).
+export { resampleCandles, H4_MS };
 
 export type UniversalKind = 'crypto' | 'stock';
 
@@ -34,42 +37,6 @@ export function resolveAsset(raw: string): ResolvedAsset {
 }
 
 export type StockTf = '1h' | '4h' | '1d' | '1w';
-
-/** Duração da sessão de 4h em ms (blocos 00/04/08/12/16/20 UTC = 21/01/05/09/13/17 BRT). */
-export const H4_MS = 4 * 3600_000;
-
-/**
- * Reamostra candles em sessões reais de parede (ex.: 60m → 4h alinhado em
- * 00/04/08... UTC, que fecham 21:00, 17:00... em Brasília). Sessão parcial
- * (início/fim dos dados) entra como candle em formação, igual nas exchanges.
- */
-export function resampleCandles(kl: Candle[], sessionMs: number): Candle[] {
-  const build = (chunk: Candle[]): Candle => ({
-    time: chunk[0].time,
-    open: chunk[0].open,
-    high: Math.max(...chunk.map((k) => k.high)),
-    low: Math.min(...chunk.map((k) => k.low)),
-    close: chunk[chunk.length - 1].close,
-    volume: chunk.reduce((s, k) => s + k.volume, 0),
-  });
-  const out: Candle[] = [];
-  let key = -1;
-  let chunk: Candle[] = [];
-  const flush = () => {
-    if (chunk.length) out.push(build(chunk));
-    chunk = [];
-  };
-  for (const k of kl) {
-    const kKey = Math.floor(k.time / sessionMs);
-    if (kKey !== key) {
-      flush();
-      key = kKey;
-    }
-    chunk.push(k);
-  }
-  flush();
-  return out;
-}
 
 function yahooRange(tf: StockTf): { range: string; interval: string } {
   if (tf === '1h' || tf === '4h') return { range: '3mo', interval: '60m' };
@@ -112,7 +79,7 @@ export async function fetchAssetCandles(
         /* próximo candidato */
       }
     }
-    throw new Error(`Ativo ${r.symbol} sem dados ao vivo (par deslistado?)`);
+    throw new Error(`Ativo ${r.symbol} sem dados de ${tf} em nenhuma fonte agora (tente outro timeframe)`);
   }
   const ysym = r.yahooSymbol ?? r.symbol;
   const stock = await fetchStockCandles(ysym, tf === '4h' ? '1d' : (tf as StockTf));

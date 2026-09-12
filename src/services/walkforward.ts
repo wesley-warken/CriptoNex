@@ -2,7 +2,7 @@ import { idbGet, idbSet } from '@/lib/idb';
 import type { Candle } from '@/types';
 import type { WFRequest, WFStats } from '@/workers/walkforward';
 
-export const WF_KEY = 'cc.walkforward:v1';
+export const WF_KEY = 'cc.walkforward:v2';
 export const WF_TTL_MS = 7 * 24 * 3600 * 1000;
 
 export interface WFReport {
@@ -93,9 +93,15 @@ export function runWalkforward(
   return { promise, cancel };
 }
 
-/** Hit rate de um tier num horizonte (null sem amostra n≥30). */
-export function tierHit(stats: WFStats, tier: string, h: number): { hit: number; n: number } | null {
-  const b = stats.perTier[tier];
+/** Hit rate de um tier num horizonte (null sem amostra n≥30). src: main | in (IS) | out (OOS). */
+export function tierHit(
+  stats: WFStats,
+  tier: string,
+  h: number,
+  src: 'main' | 'in' | 'out' = 'main',
+): { hit: number; n: number } | null {
+  const perTier = src === 'in' ? stats.inSample : src === 'out' ? stats.outOfSample : stats.perTier;
+  const b = perTier[tier];
   const hb = b?.byHorizon[h];
   if (!hb || hb.n < 30) return null;
   return { hit: hb.wins / hb.n, n: hb.n };

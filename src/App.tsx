@@ -7,6 +7,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Portfolio } from '@/pages/Portfolio';
 import { Radar } from '@/pages/Radar';
 import { Opportunities } from '@/pages/Opportunities';
+import { SetupsPage } from '@/setups/presentation/SetupsPage';
 import { RegimePage } from '@/pages/RegimePage';
 import { Stocks } from '@/pages/Stocks';
 import { Watchlist } from '@/pages/Watchlist';
@@ -23,6 +24,7 @@ import { Favorites } from '@/pages/Favorites';
 import { BacktestingPage } from '@/pages/BacktestingPage';
 import { Training } from '@/pages/Training';
 import { Settings } from '@/pages/Settings';
+import { RadarTrendDemo } from '@/pages/demo/RadarTrendDemo';
 
 export function App() {
   // Splash de entrada: demo com 2.5s. Para ligar nos dados reais, ver o
@@ -38,6 +40,7 @@ export function App() {
           <Route path="/radar" element={<Radar />} />
           <Route path="/oportunidades" element={<Opportunities />} />
           <Route path="/opportunities" element={<Opportunities />} />
+          <Route path="/setups" element={<SetupsPage />} />
           <Route path="/regime" element={<RegimePage />} />
           <Route path="/stocks" element={<Stocks />} />
           <Route path="/watchlist" element={<Watchlist />} />
@@ -54,6 +57,8 @@ export function App() {
           <Route path="/backtesting" element={<BacktestingPage />} />
           <Route path="/training" element={<Training />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/demo" element={<RadarTrendDemo />} />
+          <Route path="/demo/radar" element={<RadarTrendDemo />} />
         </Route>
       </Routes>
     </BrowserRouter>
