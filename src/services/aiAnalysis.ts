@@ -210,7 +210,9 @@ async function callModel(key: string, modelId: string, userPrompt: string): Prom
   // (finish=MAX_TOKENS cortado no meio). Tarefas aqui são extrativas (todos
   // os dados vão no prompt), então thinking desligado. Modelos lite rejeitam
   // o campo com 400 — por isso ele só vai nos modelos sem "lite" no nome.
-  const generationConfig: Record<string, unknown> = { maxOutputTokens: 1024 };
+  // Temperature baixa: brief é extrativo (dados já vêm no prompt), então
+  // prioriza seguir instruções (tamanho, âncoras) em vez de variar o texto.
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: 1024, temperature: 0.2 };
   if (!modelId.includes('lite')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   try {
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`, {
@@ -408,6 +410,7 @@ export function buildMorningBriefPrompt(i: MorningBriefInput): string {
     '🎯 <priorizar> <evitar>',
     '⚠️ <alerta ou Sem alertas além do monitoramento padrão>',
     'NUNCA resuma tudo em 1 linha; NUNCA omita uma seção.',
+    'OBRIGATÓRIO: no mínimo 150 palavras no total — resposta curta será descartada automaticamente. Mesmo que algum dado esteja N/A (dia sem pregão, feed fora), preencha as 5 seções com o contexto disponível, sem inventar números.',
   ].join('\n');
 }
 

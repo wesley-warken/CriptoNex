@@ -85,6 +85,11 @@ describe('morning brief: prompt e template determinístico', () => {
     expect(p).toMatch(/150.*250|250.*150/);
     expect(p.toLowerCase()).not.toMatch(/compre|recomendo/);
   });
+  it('prompt impõe piso de 150 palavras mesmo com N/A', () => {
+    const p = buildMorningBriefPrompt(briefInput);
+    expect(p).toMatch(/mínimo 150 palavras/i);
+    expect(p).toMatch(/N\/A/);
+  });
   it('template tem 5 âncoras, 150–250 palavras e números reais', () => {
     const t = buildBriefTemplate(briefInput);
     for (const a of ['🎯', '📊', '🎨', '⚠️']) expect(t).toContain(a);
