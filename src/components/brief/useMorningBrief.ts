@@ -146,7 +146,7 @@ export function useMorningBrief(
         if (r.tier !== 'flash') {
           setBriefError(r.error
             ? `IA indisponível (${r.error}); mantido o resumo automático.`
-            : 'A resposta da IA não passou na validação; mantido o resumo automático.');
+            : `A resposta da IA não passou na validação${r.detail ? ` (${r.detail})` : ''}; mantido o resumo automático.`);
         }
       } catch (e) {
         setBriefError(e instanceof Error ? `Falha ao gerar com IA: ${e.message}` : 'Falha ao gerar com IA.');

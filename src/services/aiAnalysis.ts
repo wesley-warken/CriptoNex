@@ -311,6 +311,8 @@ export interface CascadeOut {
   tier: AiTier | 'template' | 'unavailable';
   badge: string | null;
   error: 'NO_KEY' | 'QUOTA' | 'FAILED' | null;
+  /** Motivo legível do fallback (ex.: validação: "43 palavras; âncora ausente"). */
+  detail: string | null;
 }
 
 /**
@@ -322,13 +324,13 @@ export async function generateExplain(userPrompt: string): Promise<CascadeOut> {
   const [used, done] = await Promise.all([flashUsedToday(day), isBriefDone(day)]);
   if (canExplainFlash(used, done)) {
     const r = await askTier(userPrompt, 'flash');
-    if (r.ok) return { text: r.text, tier: 'flash', badge: null, error: null };
-    if (r.error === 'NO_KEY') return { text: null, tier: 'unavailable', badge: null, error: 'NO_KEY' };
+    if (r.ok) return { text: r.text, tier: 'flash', badge: null, error: null, detail: null };
+    if (r.error === 'NO_KEY') return { text: null, tier: 'unavailable', badge: null, error: 'NO_KEY', detail: 'NO_KEY' };
   }
   const lite = await askTier(userPrompt, 'lite');
-  if (lite.ok) return { text: lite.text, tier: 'lite', badge: BADGE_LITE, error: null };
-  if (lite.error === 'NO_KEY') return { text: null, tier: 'unavailable', badge: null, error: 'NO_KEY' };
-  return { text: null, tier: 'unavailable', badge: null, error: lite.error };
+  if (lite.ok) return { text: lite.text, tier: 'lite', badge: BADGE_LITE, error: null, detail: null };
+  if (lite.error === 'NO_KEY') return { text: null, tier: 'unavailable', badge: null, error: 'NO_KEY', detail: 'NO_KEY' };
+  return { text: null, tier: 'unavailable', badge: null, error: lite.error, detail: lite.error };
 }
 
 /**
@@ -494,16 +496,20 @@ export async function generateBrief(userPrompt: string, template: string, input:
   const first = await askGemini(userPrompt, 'flash');
   if (first.ok) {
     const v = briefOutputValid(first.text, input);
-    if (v.ok) { await markBriefDone(); return { text: first.text, tier: 'flash', badge: null, error: null }; }
+    if (v.ok) { await markBriefDone(); return { text: first.text, tier: 'flash', badge: null, error: null, detail: null }; }
     if (!first.cached) {
       const repair = await askGemini(
         `${userPrompt}\n\nREPARO: sua resposta anterior tinha ${v.words} palavras e falhou por: ${v.reason}. Reescreva com AS e SÓ AS 5 seções (🎯📊🎨⚠️), uma por parágrafo, usando os números do prompt.`,
         'flash',
       );
       const v2 = repair.ok ? briefOutputValid(repair.text, input) : { ok: false, reason: 'reparo falhou', words: 0 };
-      if (repair.ok && v2.ok) { await markBriefDone(); return { text: repair.text, tier: 'flash', badge: null, error: null }; }
+      if (repair.ok && v2.ok) { await markBriefDone(); return { text: repair.text, tier: 'flash', badge: null, error: null, detail: null }; }
+      await markBriefDone();
+      return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: null, detail: `1ª: ${v.words} palavras, ${v.reason}; reparo: ${v2.words} palavras, ${v2.reason}` };
     }
+    await markBriefDone();
+    return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: null, detail: `cache: ${v.words} palavras, ${v.reason}` };
   }
   await markBriefDone();
-  return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: first.ok ? null : first.error };
+  return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: first.error, detail: first.error };
 }

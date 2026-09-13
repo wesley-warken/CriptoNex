@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   quotaDay, canSpend, hashPrompt, buildSetupPrompt, buildContextPrompt, AI_SYSTEM, AI_DAILY_CAP,
   AI_LITE_DAILY_CAP, canExplainFlash, buildMorningBriefPrompt, buildBriefTemplate, buildBriefHeadline,
-  briefOutputValid, BANNED_HYPE, type MorningBriefInput,
+  briefOutputValid, generateBrief, BANNED_HYPE, type MorningBriefInput,
 } from './aiAnalysis';
 
 describe('cota dura do plano gratuito', () => {
@@ -129,5 +129,18 @@ describe('validador anti-1-linha aceita pt-BR', () => {
   it('reprova âncora ausente', () => {
     const semAnchor = iaPtBr.replace('🎨', 'Sobre cripto:');
     expect(briefOutputValid(semAnchor, briefInput).ok).toBe(false);
+  });
+  it('fallback sem chave expõe o motivo no detail', async () => {
+    // Chave camuflada: NO_KEY determinístico, sem rede.
+    vi.stubEnv('VITE_GEMINI_API_KEY', '');
+    try {
+      const r = await generateBrief('prompt', 'TEMPLATE', briefInput);
+      expect(r.tier).toBe('template');
+      expect(r.text).toBe('TEMPLATE');
+      expect(r.error).toBe('NO_KEY');
+      expect(r.detail).toBe('NO_KEY');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
