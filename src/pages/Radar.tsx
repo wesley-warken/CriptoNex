@@ -18,7 +18,7 @@ import { MSection } from '@/components/minimal/MSection';
 import { MEmpty } from '@/components/minimal/MEmpty';
 import { MDot } from '@/components/minimal/MStats';
 import { CoinLogo } from '@/components/ui/coin-logo';
-import { ArrowUpRight, BarChart3, Bell, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, Plus, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, X, Zap, type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Bell, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Eye, Filter, Flame, Gem, Globe, Info, ListPlus, Maximize2, Plus, RotateCw, Siren, Star, TrendingDown, TrendingUp, TriangleAlert, X, Zap, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
@@ -96,6 +96,14 @@ export function monIcon(key: string, size = 14) {
   const I = MON_ICON_MAP[key] ?? Star;
   return <I size={size} />;
 }
+
+/** Cor sólida de cada cor de filtro (pílulas, dots e dropdown). */
+export const MON_COLOR_HEX: Record<MonColor, string> = {
+  green: '#34d399',
+  red: '#fb7185',
+  yellow: '#fbbf24',
+  blue: '#60a5fa',
+};
 
 function cacheAge(ts: number | null): string {
   if (!ts) return '';
@@ -266,6 +274,9 @@ export function Radar() {
   const [monDraft, setMonDraft] = useState(blankDraft);
   /** Id em edição no construtor (null = criando). + erro de validação do save. */
   const [monBuilderError, setMonBuilderError] = useState<string | null>(null);
+  /** Dropdowns custom do construtor (ícone/cor mostram prévia visual). */
+  const [monIconOpen, setMonIconOpen] = useState(false);
+  const [monColorOpen, setMonColorOpen] = useState(false);
   /** Filtros com combinação impossível (não avaliam; UI explica o motivo). */
   const monFilterIssues = useMemo(
     () => new Map(allMonFilters.map((f) => [f.id, validateFilter(f)])),
@@ -1714,22 +1725,65 @@ export function Radar() {
               className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--brand)]"
             />
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Ícone</label>
-                <div className="mt-1 flex items-center gap-2">
-                  <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
-                    {MON_ICONS.map((i) => <option key={i.k} value={i.k}>{i.label}</option>)}
-                  </select>
-                  <span title="Prévia do ícone" className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-primary)]">
-                    {monIcon(monDraft.icon, 18)}
-                  </span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => { setMonIconOpen((v) => !v); setMonColorOpen(false); }}
+                  className="mt-1 flex w-full items-center gap-2 border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center text-[var(--text-secondary)]">{monIcon(monDraft.icon, 16)}</span>
+                  <span className="flex-1 truncate text-left">{MON_ICONS.find((i) => i.k === monDraft.icon)?.label ?? monDraft.icon}</span>
+                  <ChevronDown size={14} className="shrink-0 text-[var(--text-muted)]" />
+                </button>
+                {monIconOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[60]" onClick={() => setMonIconOpen(false)} />
+                    <div className="absolute inset-x-0 top-full z-[61] mt-1 max-h-56 overflow-auto border border-[var(--border)] bg-[var(--surface-1)] shadow-xl">
+                      {MON_ICONS.map((i) => (
+                        <button
+                          key={i.k}
+                          type="button"
+                          onClick={() => { setMonDraft((d) => ({ ...d, icon: i.k })); setMonIconOpen(false); }}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)] ${i.k === monDraft.icon ? 'text-[var(--brand)]' : 'text-[var(--text-primary)]'}`}
+                        >
+                          <span className="inline-flex h-5 w-5 items-center justify-center text-[var(--text-secondary)]">{monIcon(i.k, 16)}</span>
+                          <span className="truncate">{i.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
-              <div>
+              <div className="relative">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Cor</label>
-                <select value={monDraft.color} onChange={(e) => setMonDraft((d) => ({ ...d, color: e.target.value as MonColor }))} className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
-                  {MON_COLORS.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
-                </select>
+                <button
+                  type="button"
+                  onClick={() => { setMonColorOpen((v) => !v); setMonIconOpen(false); }}
+                  className="mt-1 flex w-full items-center gap-2 border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]"
+                >
+                  <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: MON_COLOR_HEX[monDraft.color] }} />
+                  <span className="flex-1 truncate text-left">{MON_COLORS.find((c) => c.k === monDraft.color)?.label ?? monDraft.color}</span>
+                  <ChevronDown size={14} className="shrink-0 text-[var(--text-muted)]" />
+                </button>
+                {monColorOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[60]" onClick={() => setMonColorOpen(false)} />
+                    <div className="absolute inset-x-0 top-full z-[61] mt-1 overflow-auto border border-[var(--border)] bg-[var(--surface-1)] shadow-xl">
+                      {MON_COLORS.map((c) => (
+                        <button
+                          key={c.k}
+                          type="button"
+                          onClick={() => { setMonDraft((d) => ({ ...d, color: c.k })); setMonColorOpen(false); }}
+                          className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out hover:bg-[var(--surface-2)] ${c.k === monDraft.color ? 'text-[var(--brand)]' : 'text-[var(--text-primary)]'}`}
+                        >
+                          <span className="h-3.5 w-3.5 shrink-0 rounded-full" style={{ backgroundColor: MON_COLOR_HEX[c.k] }} />
+                          <span className="truncate">{c.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
             <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Descrição</label>
