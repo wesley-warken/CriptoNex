@@ -17,7 +17,7 @@ const USAGE_FLASH_KEY = 'cc.ai:usage:flash';
 const USAGE_LITE_KEY = 'cc.ai:usage:lite';
 const BRIEF_KEY = (day: string) => `cc.ai:brief:${day}`;
 const CACHE_KEY = (h: string) => `cc.ai:v1:${h}`;
-const DEFAULT_MODEL = 'gemini-3.5-flash';
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_MODEL_LITE = 'gemini-3.5-flash-lite';
 
 /** Tier de modelo: 'flash' (principal) ou 'lite' (auxiliar). */
@@ -205,6 +205,13 @@ type FetchStatus = { status: 'ok'; text: string } | { status: 'quota' | 'failed'
 
 async function callModel(key: string, modelId: string, userPrompt: string): Promise<FetchStatus> {
   let r: Response;
+  // Thinking consome o teto de maxOutputTokens junto com a resposta: com o
+  // teto de 1024, o modelo pensava ~980 tokens e entregava ~40 de texto
+  // (finish=MAX_TOKENS cortado no meio). Tarefas aqui são extrativas (todos
+  // os dados vão no prompt), então thinking desligado. Modelos lite rejeitam
+  // o campo com 400 — por isso ele só vai nos modelos sem "lite" no nome.
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: 1024 };
+  if (!modelId.includes('lite')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   try {
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`, {
       method: 'POST',
@@ -212,7 +219,7 @@ async function callModel(key: string, modelId: string, userPrompt: string): Prom
       body: JSON.stringify({
         system_instruction: { parts: [{ text: AI_SYSTEM }] },
         contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: { maxOutputTokens: 1024 },
+        generationConfig,
       }),
     });
   } catch {
