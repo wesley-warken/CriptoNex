@@ -23,6 +23,7 @@ export interface MorningBriefState {
   briefTier: 'flash' | 'template';
   briefBadge: string | null;
   briefBusy: boolean;
+  briefError: string | null;
   generateAi: () => void;
   quotaNote: string;
 }
@@ -50,6 +51,7 @@ export function useMorningBrief(
   const [briefTier, setBriefTier] = useState<'flash' | 'template'>('template');
   const [briefBadge, setBriefBadge] = useState<string | null>(BADGE_TEMPLATE);
   const [briefBusy, setBriefBusy] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
   const [quotaNote, setQuotaNote] = useState('—/20');
 
   const briefDay = useMemo(() => {
@@ -133,18 +135,29 @@ export function useMorningBrief(
   const generateAi = useCallback(() => {
     if (!input || briefBusy) return;
     setBriefBusy(true);
+    setBriefError(null);
     void (async () => {
-      const template = buildBriefTemplate(input);
-      const r = await generateBrief(buildMorningBriefPrompt(input), template, input);
-      setBriefText(r.text ?? template);
-      setBriefTier(r.tier === 'flash' ? 'flash' : 'template');
-      setBriefBadge(r.badge);
-      setBriefBusy(false);
       try {
-        const left = await aiRemaining();
-        setQuotaNote(`${left}/20`);
-      } catch {
-        /* mantém */
+        const template = buildBriefTemplate(input);
+        const r = await generateBrief(buildMorningBriefPrompt(input), template, input);
+        setBriefText(r.text ?? template);
+        setBriefTier(r.tier === 'flash' ? 'flash' : 'template');
+        setBriefBadge(r.badge);
+        if (r.tier !== 'flash') {
+          setBriefError(r.error
+            ? `IA indisponível (${r.error}); mantido o resumo automático.`
+            : 'A resposta da IA não passou na validação; mantido o resumo automático.');
+        }
+      } catch (e) {
+        setBriefError(e instanceof Error ? `Falha ao gerar com IA: ${e.message}` : 'Falha ao gerar com IA.');
+      } finally {
+        setBriefBusy(false);
+        try {
+          const left = await aiRemaining();
+          setQuotaNote(`${left}/20`);
+        } catch {
+          /* mantém */
+        }
       }
     })();
   }, [input, briefBusy]);
@@ -153,6 +166,6 @@ export function useMorningBrief(
     headline: input ? buildBriefHeadline(input) : null,
     loading, loadError, open, setOpen,
     isWindow, isNew: isWindow && !seen,
-    briefText, briefTier, briefBadge, briefBusy, generateAi, quotaNote,
+    briefText, briefTier, briefBadge, briefBusy, briefError, generateAi, quotaNote,
   };
 }

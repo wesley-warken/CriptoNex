@@ -450,6 +450,19 @@ const requiredNumbers = (i: MorningBriefInput): string[] => [
   bNum(i.btc.price),
 ];
 
+/**
+ * Normaliza números para comparar a saída da IA (pt-BR: "115.420",
+ * "+0,4%", "14,2") com os valores crus do input ("115420", "+0.4", "14.2").
+ * Sem isso, resposta válida era descartada e o usuário via o template
+ * idêntico — "cota caiu e nada apareceu".
+ */
+const normNum = (s: string): string => {
+  const t = s.replace(/[^0-9.,+-]/g, '');
+  return t
+    .replace(/(\d)\.(?=\d{3}(?!\d))/g, '$1') // ponto de milhar: "115.420"→"115420"; "14.2" intacto
+    .replace(/(\d),(\d)/g, '$1.$2'); // vírgula decimal: "+0,4"→"+0.4"; vírgula de lista ("5, gap") intacta
+};
+
 export function briefOutputValid(text: string | null, i: MorningBriefInput): BriefValidity {
   if (!text || !text.trim()) return { ok: false, reason: 'texto vazio', words: 0 };
   const words = text.trim().split(/\s+/).filter(Boolean).length;
@@ -457,7 +470,8 @@ export function briefOutputValid(text: string | null, i: MorningBriefInput): Bri
   if (words > 300) return { ok: false, reason: 'texto muito longo', words };
   const missing = ['🎯', '📊', '🎨', '⚠️'].filter((a) => !text.includes(a));
   if (missing.length) return { ok: false, reason: `${missing.length} âncora(s) de seção ausente`, words };
-  const nums = requiredNumbers(i).filter((n) => n && n !== 'N/A' && n !== 'null' && !text.includes(n));
+  const nt = normNum(text);
+  const nums = requiredNumbers(i).filter((n) => n && n !== 'N/A' && n !== 'null' && !nt.includes(normNum(n)));
   if (nums.length) return { ok: false, reason: `número-chave ausente (${nums.join(', ')})`, words };
   for (const h of BANNED_HYPE) if (text.toLowerCase().includes(h)) return { ok: false, reason: `hype proibido: ${h}`, words };
   return { ok: true, reason: null, words };

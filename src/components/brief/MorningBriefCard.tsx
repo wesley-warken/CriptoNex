@@ -93,6 +93,11 @@ export function MorningBriefCard({ brief }: { brief: MorningBriefState }) {
           </div>
         }
       >
+        {brief.briefError && (
+          <p className="mb-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
+            {brief.briefError}
+          </p>
+        )}
         {brief.briefText ? <BriefBody text={brief.briefText} /> : (
           <p className="text-sm text-[var(--text-muted)]">Carregando dados da abertura…</p>
         )}
