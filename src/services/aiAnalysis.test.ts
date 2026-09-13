@@ -82,13 +82,12 @@ describe('morning brief: prompt e template determinístico', () => {
   it('prompt carrega todos os números e proíbe recomendação', () => {
     const p = buildMorningBriefPrompt(briefInput);
     for (const n of ['6487.5', '1.2', '14.2', '115420', 'RISK-ON', '68', 'NVDA', '84', '2.6']) expect(p).toContain(n);
-    expect(p).toMatch(/150.*250|250.*150/);
+    expect(p).toMatch(/200 palavras/);
     expect(p.toLowerCase()).not.toMatch(/compre|recomendo/);
   });
-  it('prompt impõe piso de 150 palavras mesmo com N/A', () => {
+  it('prompt impõe teto de 200 palavras e N/A honesto', () => {
     const p = buildMorningBriefPrompt(briefInput);
-    expect(p).toMatch(/entre 150 e 250 palavras/);
-    expect(p).toMatch(/abaixo de 150 palavras/);
+    expect(p).toMatch(/no máximo 200 palavras/i);
     expect(p).toMatch(/N\/A NÃO significa zero/);
     expect(p).toMatch(/inconclusivo/);
   });
@@ -113,35 +112,42 @@ describe('morning brief: prompt e template determinístico', () => {
   });
 });
 
-describe('validador anti-1-linha aceita pt-BR', () => {
+describe('validador estrutural: teto 200, âncoras por parágrafo', () => {
   const iaPtBr = [
-    '🎯 Abertura em tom positivo com o S&P 500 em alta de +0,8% aos 6.487 pontos, liderado por Tech com +1,5%. O Nasdaq 100 avança +1,2% com gap de +0,5%, enquanto o VIX recua para 14,2 pontos, indicando apetite por risco na manhã.',
-    '📊 O dólar em queda de 0,2% alivia ativos de risco e sustenta o movimento. Entre os eventos das últimas 24h, o CPI de amanhã deve vir em linha e as big techs divulgam balanços na semana. Nada fora do padrão nos gaps dos índices, todos positivos na abertura de hoje.',
-    '🎨 O BTC desacoplou das ações e opera aos 115.420 dólares com +2,1% em 24h, enquanto o S&P subiu +0,2% em 48h contra +2,0% do BTC no período. O ETH acompanha aos 4.521 dólares com +1,4%. Para hoje, posições em cripto não dependem de confirmação das ações.',
-    '🎯 Priorizar pullbacks em NVDA com score 84 e R:R 2,6 e META com score 81 no horizonte de 1 a 3 meses. Evitar reversões de topo, pois o regime sustenta tendência e não movimentos contrários ao fluxo dominante do mercado acionário.',
-    '⚠️ Sem alertas além do monitoramento padrão para a sessão de hoje, com amplitude em 68 indicando fundo amplo e saudável para a continuidade do movimento de alta observado.',
+    '🎯 Abertura em tom positivo com o S&P 500 em alta de +0,8% aos 6.487 pontos, liderado por Tech com +1,5%. Nasdaq avança +1,2% e o VIX recua para 14,2 pontos.',
+    '📊 O dólar em queda de 0,2% alivia ativos de risco. O CPI de amanhã deve vir em linha e as big techs divulgam balanços na semana. Gaps positivos e VIX em queda confirmam o tom da abertura.',
+    '🎨 O BTC desacoplou e opera aos 115.420 dólares com +2,1% em 24h, enquanto o S&P subiu +0,2% em 48h contra +2,0% do BTC. O ETH segue aos 4.521 dólares com +1,4%.',
+    '🎯 Priorizar pullbacks em NVDA com score 84 e META com score 81 no horizonte de 1 a 3 meses. Evitar reversões de topo, pois o regime sustenta tendência.',
+    '⚠️ Sem alertas além do monitoramento padrão, com amplitude em 68 indicando fundo amplo e saudável.',
   ].join('\n');
   it('aprova resposta válida com números formatados em pt-BR', () => {
-    const v = briefOutputValid(iaPtBr, briefInput);
+    const v = briefOutputValid(iaPtBr);
     expect(v.ok).toBe(true);
     expect(v.reason).toBeNull();
   });
-  it('aprova o próprio template determinístico', () => {
-    expect(briefOutputValid(buildBriefTemplate(briefInput), briefInput).ok).toBe(true);
+  it('rejeita colapso em 1 linha mesmo com as 4 âncoras', () => {
+    const umaLinha = '🎯 Abertura em alta 📊 Macro estável 🎨 Crypto segue 🎯 Priorizar tudo ⚠️ Sem alertas hoje e amanhã com bom humor';
+    expect(briefOutputValid(umaLinha).ok).toBe(false);
+  });
+  it('rejeita texto acima de 200 palavras', () => {
+    const longo = `${iaPtBr}\n${iaPtBr}`;
+    const v = briefOutputValid(longo);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/200/);
   });
   it('reprova colapso em 1 linha', () => {
-    const v = briefOutputValid('🎯 Alta com S&P +0,8% e VIX 14,2.', briefInput);
+    const v = briefOutputValid('🎯 Alta com S&P +0,8% e VIX 14,2.');
     expect(v.ok).toBe(false);
   });
   it('reprova âncora ausente', () => {
     const semAnchor = iaPtBr.replace('🎨', 'Sobre cripto:');
-    expect(briefOutputValid(semAnchor, briefInput).ok).toBe(false);
+    expect(briefOutputValid(semAnchor).ok).toBe(false);
   });
   it('fallback sem chave expõe o motivo no detail', async () => {
     // Chave camuflada: NO_KEY determinístico, sem rede.
     vi.stubEnv('VITE_GEMINI_API_KEY', '');
     try {
-      const r = await generateBrief('prompt', 'TEMPLATE', briefInput);
+      const r = await generateBrief('prompt', 'TEMPLATE');
       expect(r.tier).toBe('template');
       expect(r.text).toBe('TEMPLATE');
       expect(r.error).toBe('NO_KEY');

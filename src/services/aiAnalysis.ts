@@ -431,9 +431,9 @@ export function buildMorningBriefPrompt(i: MorningBriefInput): string {
     '🎨 CORRELAÇÃO CRYPTO — seguindo, desacoplado ou inconclusivo + implicação operacional para monitoramento de risco; sem recomendação de compra ou venda.',
     '🎯 AÇÃO CONCRETA — no máximo 2 bullets: Priorizar (maior atenção/monitoramento); Evitar (risco, ruído ou falta de confirmação).',
     '⚠️ ALERTAS DE RISCO — com divergência real: descrever objetivamente a divergência e o risco; sem divergência, escrever exatamente "Sem alertas além do monitoramento padrão".',
-    'FORMATO FINAL OBRIGATÓRIO: português do Brasil, Markdown, entre 150 e 250 palavras. Responder EXCLUSIVAMENTE com estas 5 seções e nesta ordem (🎯 📊 🎨 🎯 ⚠️), cada seção em um único parágrafo/bloco visual, o primeiro caractere de cada seção exatamente a âncora.',
-    'NUNCA: omitir uma seção; condensar tudo em uma única linha; ultrapassar 250 palavras; ficar abaixo de 150 palavras; inventar valores; substituir N/A por zero; criar notícias, eventos, setores líderes ou divergências; emitir recomendação de compra, venda ou manutenção.',
-    'TRATAMENTO DE DADOS INCOMPLETOS: mesmo com múltiplos N/A, gerar as 5 seções com o contexto disponível, reduzindo a força da conclusão (ex.: "Dado insuficiente para confirmar a direção do índice."). PRIORIDADE DAS REGRAS: 1. Não inventar dados. 2. Não emitir recomendação financeira. 3. Preservar as 5 seções. 4. Diferenciar dado observado de interpretação. 5. Objetividade e precisão. 6. Respeitar 150–250 palavras.',
+    'FORMATO FINAL OBRIGATÓRIO: português do Brasil, Markdown, no máximo 200 palavras (sem mínimo: o que for entregue dentro do formato está bom). Responder EXCLUSIVAMENTE com estas 5 seções e nesta ordem (🎯 📊 🎨 🎯 ⚠️), cada seção em um único parágrafo/bloco visual, o primeiro caractere de cada seção exatamente a âncora.',
+    'NUNCA: omitir uma seção; condensar tudo em uma única linha; ultrapassar 200 palavras; inventar valores; substituir N/A por zero; criar notícias, eventos, setores líderes ou divergências; emitir recomendação de compra, venda ou manutenção.',
+    'TRATAMENTO DE DADOS INCOMPLETOS: mesmo com múltiplos N/A, gerar as 5 seções com o contexto disponível, reduzindo a força da conclusão (ex.: "Dado insuficiente para confirmar a direção do índice."). PRIORIDADE DAS REGRAS: 1. Não inventar dados. 2. Não emitir recomendação financeira. 3. Preservar as 5 seções. 4. Diferenciar dado observado de interpretação. 5. Objetividade e precisão. 6. Respeitar o máximo de 200 palavras.',
   ].join('\n');
 }
 
@@ -469,9 +469,10 @@ export function buildBriefTemplate(i: MorningBriefInput): string {
 }
 
 /**
- * Validador determinístico do brief: pega a 1-linha da imagem e similares.
- * Aprova só texto que traz as 5 âncoras + 3 números-chave reais do input
- * + 100–300 palavras. Garante resposta ruim → template, não badge vazio.
+ * Validador estrutural do brief (decisão do usuário: sem piso mínimo, sem
+ * checagem de números — "o que ele entregar está bom"). Exige apenas:
+ * texto não-vazio, NO MÁXIMO 200 palavras e as 4 âncoras, cada uma abrindo
+ * seu próprio parágrafo (isso barra o colapso em 1 linha do bug original).
  */
 export interface BriefValidity {
   ok: boolean;
@@ -479,36 +480,15 @@ export interface BriefValidity {
   words: number;
 }
 
-const requiredNumbers = (i: MorningBriefInput): string[] => [
-  bSigned(i.spx.chg),
-  bNum(i.vix.level),
-  bNum(i.btc.price),
-];
+export const BRIEF_MAX_WORDS = 200;
 
-/**
- * Normaliza números para comparar a saída da IA (pt-BR: "115.420",
- * "+0,4%", "14,2") com os valores crus do input ("115420", "+0.4", "14.2").
- * Sem isso, resposta válida era descartada e o usuário via o template
- * idêntico — "cota caiu e nada apareceu".
- */
-const normNum = (s: string): string => {
-  const t = s.replace(/[^0-9.,+-]/g, '');
-  return t
-    .replace(/(\d)\.(?=\d{3}(?!\d))/g, '$1') // ponto de milhar: "115.420"→"115420"; "14.2" intacto
-    .replace(/(\d),(\d)/g, '$1.$2'); // vírgula decimal: "+0,4"→"+0.4"; vírgula de lista ("5, gap") intacta
-};
-
-export function briefOutputValid(text: string | null, i: MorningBriefInput): BriefValidity {
+export function briefOutputValid(text: string | null): BriefValidity {
   if (!text || !text.trim()) return { ok: false, reason: 'texto vazio', words: 0 };
   const words = text.trim().split(/\s+/).filter(Boolean).length;
-  if (words < 100) return { ok: false, reason: 'texto curto demais (colapso em 1 linha?)', words };
-  if (words > 300) return { ok: false, reason: 'texto muito longo', words };
-  const missing = ['🎯', '📊', '🎨', '⚠️'].filter((a) => !text.includes(a));
-  if (missing.length) return { ok: false, reason: `${missing.length} âncora(s) de seção ausente`, words };
-  const nt = normNum(text);
-  const nums = requiredNumbers(i).filter((n) => n && n !== 'N/A' && n !== 'null' && !nt.includes(normNum(n)));
-  if (nums.length) return { ok: false, reason: `número-chave ausente (${nums.join(', ')})`, words };
-  for (const h of BANNED_HYPE) if (text.toLowerCase().includes(h)) return { ok: false, reason: `hype proibido: ${h}`, words };
+  if (words > BRIEF_MAX_WORDS) return { ok: false, reason: `texto longo demais (${words} palavras, máximo ${BRIEF_MAX_WORDS})`, words };
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const missing = ['🎯', '📊', '🎨', '⚠️'].filter((a) => !lines.some((l) => l.startsWith(a)));
+  if (missing.length) return { ok: false, reason: 'seção(ões) fora de parágrafo próprio ou ausente(s)', words };
   return { ok: true, reason: null, words };
 }
 
@@ -518,17 +498,17 @@ export function briefOutputValid(text: string | null, i: MorningBriefInput): Bri
  * 1x. Se falhar de novo, cai pro template (nunca gruda resposta ruim como IA).
  * Reserva do brief: canExplainFlash libera 1 slot garantido pro Flash.
  */
-export async function generateBrief(userPrompt: string, template: string, input: MorningBriefInput): Promise<CascadeOut> {
+export async function generateBrief(userPrompt: string, template: string): Promise<CascadeOut> {
   const first = await askGemini(userPrompt, 'flash');
   if (first.ok) {
-    const v = briefOutputValid(first.text, input);
+    const v = briefOutputValid(first.text);
     if (v.ok) { await markBriefDone(); return { text: first.text, tier: 'flash', badge: null, error: null, detail: null }; }
     if (!first.cached) {
       const repair = await askGemini(
         `${userPrompt}\n\nREPARO: sua resposta anterior tinha ${v.words} palavras e falhou por: ${v.reason}. Reescreva com AS e SÓ AS 5 seções (🎯📊🎨⚠️), uma por parágrafo, usando os números do prompt.`,
         'flash',
       );
-      const v2 = repair.ok ? briefOutputValid(repair.text, input) : { ok: false, reason: 'reparo falhou', words: 0 };
+      const v2 = repair.ok ? briefOutputValid(repair.text) : { ok: false, reason: 'reparo falhou', words: 0 };
       if (repair.ok && v2.ok) { await markBriefDone(); return { text: repair.text, tier: 'flash', badge: null, error: null, detail: null }; }
       await markBriefDone();
       return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: null, detail: `1ª: ${v.words} palavras, ${v.reason}; reparo: ${v2.words} palavras, ${v2.reason}` };
