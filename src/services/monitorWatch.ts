@@ -1,40 +1,21 @@
 /**
  * Vigia do Monitor: avalia os filtros ativos a cada 5min em qualquer página,
- * carimba estreias (firstSeen) e dispara notificação desktop nas novas.
+ * registra bordas inativo→ativo e dispara notificação desktop só nas novas.
  * Sem isso, eventos que acontecem com o Radar fechado passam batido.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { useUniverseCrypto } from '@/services/universeHooks';
 import {
-  buildMonData, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen, PRESET_FILTERS,
-  type MonData, type MonMatch,
+  buildMonData, diffEdgeEvents, evalFilterState, loadMonActive, loadMonEvents,
+  planMonitorData, saveMonActive, saveMonEvents, validateFilter, PRESET_FILTERS,
+  type MonData, type MonEdgeState,
 } from '@/engine/monitor';
-import { ensureMaKlines } from '@/services/maTable';
-import { closesToCandles } from '@/services/indicatorTable';
-import { getIntervalKlines, sampleEvery } from '@/services/rsiTable';
+import { fetchMonCoinKlines } from '@/services/monitorData';
 
 const WATCH_MS = 5 * 60 * 1000;
 const WATCH_TOP = 100;
 const FIRST_DELAY_MS = 45_000;
-
-/** Separa estreias de repetidos e mescla firstSeen. Puro e testável. */
-export function diffNewMatches(
-  prev: Record<string, number>, matches: MonMatch[], now: number,
-): { merged: Record<string, number>; news: MonMatch[]; changed: boolean } {
-  const merged = { ...prev };
-  const news: MonMatch[] = [];
-  let changed = false;
-  for (const m of matches) {
-    const k = `${m.filterId}:${m.symbol}`;
-    if (merged[k] == null) {
-      merged[k] = now;
-      news.push(m);
-      changed = true;
-    }
-  }
-  return { merged, news, changed };
-}
 
 export function notifyMatch(filterName: string, icon: string, symbol: string): void {
   try {
@@ -61,7 +42,11 @@ export function useMonitorWatch(): { lastRun: number | null } {
       if (running.current) return;
       const { coins: cs, monFilters: customs, monDisabled: dis } = stateRef.current;
       if (!cs.length) return;
-      const active = [...PRESET_FILTERS, ...customs].filter((f) => !dis.includes(f.id));
+      // Filtros inválidos (combinação impossível) nunca avaliam — e nunca
+      // somem em silêncio: a UI os marca como incompatíveis.
+      const active = [...PRESET_FILTERS, ...customs].filter(
+        (f) => !dis.includes(f.id) && validateFilter(f).length === 0,
+      );
       if (!active.length) return;
       running.current = true;
       try {
@@ -70,20 +55,13 @@ export function useMonitorWatch(): { lastRun: number | null } {
           .filter((c) => (c.marketCap ?? 0) > 0)
           .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
           .slice(0, WATCH_TOP);
+        const states: { key: string; filterId: string; symbol: string; state: MonEdgeState }[] = [];
         const data: MonData[] = [];
         for (let i = 0; i < top.length; i += 8) {
           const batch = await Promise.all(
             top.slice(i, i + 8).map(async (c) => {
-              const hourly = (c.spark7d ?? []).filter((v) => v > 0);
-              const h1 = closesToCandles(hourly.slice(-120)) ?? null;
-              const h4 = closesToCandles(sampleEvery(hourly, 4)) ?? null;
-              const [d1, w1] = await Promise.all([
-                plan.daily === 'none' ? null : plan.daily === 'ma'
-                  ? ensureMaKlines([{ symbol: c.symbol, id: c.id }], '1d').then((m) => m.get(c.symbol) ?? null)
-                  : getIntervalKlines(c.symbol, c.id, '1d', 60, 120),
-                plan.weekly ? getIntervalKlines(c.symbol, c.id, '1w', 30, 60) : null,
-              ]);
-              return buildMonData(c, { '1h': h1, '4h': h4, '1d': d1, '1w': w1 });
+              const { kl, rangeKl } = await fetchMonCoinKlines(c, plan);
+              return buildMonData(c, kl, rangeKl);
             }),
           );
           if (!alive) return;
@@ -91,12 +69,24 @@ export function useMonitorWatch(): { lastRun: number | null } {
         }
         if (!alive) return;
         const now = Date.now();
-        const matches = evalMonitor(data, active);
-        const { merged, news, changed } = diffNewMatches(loadFirstSeen(), matches, now);
-        if (changed) saveFirstSeen(merged);
+        for (const d of data) {
+          for (const f of active) {
+            states.push({
+              key: `${f.id}:${d.symbol}`, filterId: f.id, symbol: d.symbol,
+              state: evalFilterState(d, f),
+            });
+          }
+        }
+        // Boot silencioso: o conjunto ativo persistido vira o "anterior" —
+        // ativo antes do reload NÃO dispara de novo.
+        const { active: next, events, changed } = diffEdgeEvents(loadMonActive(), states, now);
+        if (changed) {
+          saveMonActive(next);
+          saveMonEvents([...events, ...loadMonEvents()]);
+        }
         if (!alive) return;
         const byId = new Map(active.map((f) => [f.id, f]));
-        for (const m of news.slice(0, 5)) {
+        for (const m of events.slice(0, 5)) {
           const f = byId.get(m.filterId);
           if (f) notifyMatch(f.name, f.icon, m.symbol);
         }

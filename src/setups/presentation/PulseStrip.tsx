@@ -111,6 +111,7 @@ export function PulseStrip(props: PulseStripProps) {
           <p className="text-xs uppercase tracking-wider text-[var(--text-muted)]">Resumo IA · os números acima valem</p>
           {ai.busy && <p className="mt-1 text-sm text-[var(--text-muted)]">Resumindo…</p>}
           {ai.error && <p className="mt-1 text-sm text-[var(--bear)]">{ai.error}</p>}
+          {ai.badge && ai.text && <p className="mt-1 text-xs text-[var(--text-muted)]">({ai.badge})</p>}
           {ai.text && <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[var(--text-secondary)]">{ai.text}</p>}
         </div>
       )}

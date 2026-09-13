@@ -5,6 +5,7 @@
  * último fallback nos chamadores (com cache IDB).
  */
 import { fetchWithTimeout } from '@/services/cache';
+import { binanceBase } from '@/services/providers/binance';
 import type { Candle } from '@/types';
 
 export type KlineInterval = '1h' | '4h' | '1d' | '1w';
@@ -66,7 +67,7 @@ export function noteBinanceDown(): void {
 export async function binanceKlinesFast(symbol: string, interval: string, limit: number, minCandles = 30): Promise<Candle[] | null> {
   try {
     const r = await fetchWithTimeout(
-      `https://api.binance.com/api/v3/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`,
+      `${binanceBase()}/klines?symbol=${symbol}USDT&interval=${interval}&limit=${limit}`,
       BINANCE_TIMEOUT_MS,
     );
     if (!r.ok) return null;

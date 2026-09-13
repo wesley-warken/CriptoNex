@@ -1,7 +1,7 @@
 import { fetchWithTimeout } from '@/services/cache';
 import { coinHistory, coinHistoryHours } from '@/services/history';
 import { closesToCandles } from '@/services/indicatorTable';
-import { multiKlines, probeBinance, type KlineInterval } from '@/services/providers/multiKlines';
+import { multiKlines, probeBinance, isFresh, type KlineInterval } from '@/services/providers/multiKlines';
 import { rsiWithAvg } from '@/engine/indicators';
 import { idbGet, idbSet } from '@/lib/idb';
 import type { Candle } from '@/types';
@@ -245,4 +245,44 @@ export async function getIntervalKlines(
     /* segue para rede */
   }
   return fetchIntervalKlines(symbol, id, interval, minCandles, limit);
+}
+
+/** Chave separada do misto: sintético NUNCA entra aqui. */
+const realKey = (symbol: string, interval: string) => `cc.quotes.cache:klreal:${symbol}:${interval}`;
+
+/** Idade máxima do cache real por timeframe (indicador precisa de dado novo). */
+const REAL_TTL_MS: Record<AnyTf, number> = {
+  '1h': 2 * 3600_000,
+  '4h': 8 * 3600_000,
+  '1d': 36 * 3600_000,
+  '1w': 8 * 24 * 3600_000,
+};
+
+/**
+ * Klines OHLC reais com frescor (multi-fonte Binance→Kraken→Coinbase).
+ * null = indisponível (o chamador mostra "indisponível", nunca sintético).
+ * Usado pelos indicadores de range do Monitor (stoch/super/voto-Stoch).
+ */
+export async function getRealKlines(
+  symbol: string, interval: AnyTf, minCandles: number, limit: number,
+): Promise<Candle[] | null> {
+  try {
+    const hit = await idbGet<Candle[]>(realKey(symbol, interval));
+    if (hit && hit.data.length >= minCandles && isFresh(hit.data, interval)
+      && Date.now() - hit.ts < REAL_TTL_MS[interval]) {
+      return hit.data;
+    }
+  } catch {
+    /* segue para rede */
+  }
+  const kl = (await multiKlines(symbol, interval, limit, minCandles))?.klines ?? null;
+  if (kl && kl.length >= minCandles && isFresh(kl, interval)) {
+    try {
+      await idbSet(realKey(symbol, interval), kl, REAL_TTL_MS[interval]);
+    } catch {
+      /* quota cheia */
+    }
+    return kl;
+  }
+  return null;
 }

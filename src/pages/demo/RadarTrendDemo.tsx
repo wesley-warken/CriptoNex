@@ -196,7 +196,7 @@ export function RadarTrendDemo() {
     { id: 'sma_ema', label: 'SMA/EMA' },
     { id: 'performance', label: 'Performance' },
     { id: 'btc_vs_alts', label: 'BTC vs Alts' },
-    { id: 'attention', label: 'Atenção' },
+    { id: 'attention', label: 'Movimento Atípico' },
     { id: 'sr', label: 'S/R Pivots' },
   ];
 

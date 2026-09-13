@@ -24,10 +24,15 @@ import { MarketStrip } from '@/components/analysis/MarketStrip';
 import { fmtUSD, fmtPct, fmtPrice } from '@/lib/format';
 import { calcBB, calcStoch, calcSupertrendFull } from '@/engine/indicators';
 import {
-  buildMonData, evalFilter, evalMonitor, loadFirstSeen, planMonitorData, saveFirstSeen, whyFilter,
-  MON_COLORS, MON_FIELDS, MON_ICONS, MON_INDICATORS, MON_OPS, MON_TFS, PRESET_FILTERS, TREND_LEVEL_OPTIONS,
-  type MonColor, type MonCondition, type MonData, type MonFilter, type MonIndicator, type MonOp, type MonTf,
+  buildMonData, diffEdgeEvents, evalFilter, evalFilterState, loadMonActive, loadMonEvents,
+  planMonitorData, saveMonActive, saveMonEvents, selectTopByMcap, validateCondition, validateFilter,
+  whyFilter,
+  MON_COLORS, MON_FIELDS, MON_ICONS, MON_INDICATORS, MON_OPS, MON_TF_BY_INDICATOR, MON_TFS,
+  PRESET_FILTERS, TREND_LEVEL_OPTIONS,
+  type MonColor, type MonCondition, type MonData, type MonEdgeEvent, type MonEdgeState,
+  type MonFilter, type MonIndicator, type MonOp, type MonTf,
 } from '@/engine/monitor';
+import { fetchMonCoinKlines } from '@/services/monitorData';
 
 type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR' | 'PAT';
 type SortKey = 'marketCap' | 'symbol' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
@@ -45,7 +50,7 @@ const TABS: { k: Tab; label: string }[] = [
   { k: 'RSI', label: 'RSI' },
   { k: 'STOCH', label: 'Stoch' },
   { k: 'SUPER', label: 'Supertrend' },
-  { k: 'VOL', label: 'Volume de Atenção' },
+  { k: 'VOL', label: 'Movimento Atípico' },
   { k: 'MACD', label: 'MACD Signal' },
   { k: 'BB', label: 'Bollinger' },
   { k: 'SMA', label: 'SMA' },
@@ -179,6 +184,14 @@ export function Radar() {
   const jumpOpts = useMemo(() => {
     return [...u.coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, 200);
   }, [u.coins]);
+  /**
+   * Universo do Monitor: SEMPRE Top N por market cap, independente da
+   * ordenação visual da tabela. Vazio = sem market cap carregado (pausa).
+   */
+  const monUniverse = useMemo(
+    () => selectTopByMcap(u.coins, topN, fetchN),
+    [u.coins, topN, fetchN],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
   const [selCrypto, setSelCrypto] = useState('');
@@ -235,7 +248,14 @@ export function Radar() {
   const [monExpanded, setMonExpanded] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== 'undefined' ? Notification.permission : 'denied'));
   const [monData, setMonData] = useState<Map<string, MonData>>(new Map());
-  const [monFirstSeen, setMonFirstSeen] = useState<Record<string, number>>(() => loadFirstSeen());
+  /** Bordas inativo→ativo (feed Realtime), persistidas; boot carrega em silêncio. */
+  const [monEvents, setMonEvents] = useState<MonEdgeEvent[]>(() => loadMonEvents());
+  /** Moedas avaliadas sem dados suficientes em algum filtro ativo (degradado). */
+  const [monDegraded, setMonDegraded] = useState(0);
+  /** Pausa com motivo quando não há universo Top N válido para analisar. */
+  const [monPaused, setMonPaused] = useState<string | null>(null);
+  /** Id do filtro em edição no construtor (null = criando novo). */
+  const [monEditingId, setMonEditingId] = useState<string | null>(null);
   const [monRefresh, setMonRefresh] = useState(0);
   const [monSecs, setMonSecs] = useState<number | null>(null);
   const [monListOpen, setMonListOpen] = useState(false);
@@ -244,6 +264,13 @@ export function Radar() {
     name: '', icon: 'star', color: 'yellow', description: '', conditions: [{ indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 }],
   });
   const [monDraft, setMonDraft] = useState(blankDraft);
+  /** Id em edição no construtor (null = criando). + erro de validação do save. */
+  const [monBuilderError, setMonBuilderError] = useState<string | null>(null);
+  /** Filtros com combinação impossível (não avaliam; UI explica o motivo). */
+  const monFilterIssues = useMemo(
+    () => new Map(allMonFilters.map((f) => [f.id, validateFilter(f)])),
+    [allMonFilters],
+  );
 
   const [superSnaps, setSuperSnaps] = useState<Map<string, SuperSnap>>(new Map());
   const [rsiFilter, setRsiFilter] = useState<RsiFilter | null>(null);
@@ -485,32 +512,34 @@ export function Radar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, indTf, fetchN]);
 
-  // Monitor: avalia filtros (prontos + personalizados) no top-N.
-  // Busca SÓ o que os filtros ativos exigem (1h/4h vêm do sparkline, grátis);
-  // resto usa multi-fonte + cache + SWR.
+  // Monitor: avalia filtros (prontos + personalizados) no Top N por market cap.
+  // Busca SÓ o que os filtros ativos exigem; range (stoch/super) exige OHLC
+  // real (indisponível, nunca sintético). Bordas inativo→ativo viram eventos.
   useEffect(() => {
     if (tab !== 'MON') return;
     let alive = true;
     (async () => {
+      // Sem universo válido: pausa com aviso, mantém a última análise.
+      if (!monUniverse.length) {
+        setMonPaused(u.coins.length
+          ? 'Sem market cap carregado para montar o Top N — aguardando dados.'
+          : 'Carregando universo…');
+        setIndProg(null);
+        return;
+      }
+      setMonPaused(null);
       const t0 = Date.now();
-      setIndProg({ done: 0, total: fetchN });
+      setIndProg({ done: 0, total: monUniverse.length });
       setMonSecs(null);
-      const plan = planMonitorData(activeMonFilters);
-      const top = rows.filter((c) => (c.marketCap ?? 0) > 0).slice(0, fetchN);
+      const validFilters = activeMonFilters.filter((f) => validateFilter(f).length === 0);
+      const plan = planMonitorData(validFilters);
+      const top = monUniverse;
       const data = new Map<string, MonData>();
       for (let i = 0; i < top.length; i += 8) {
         const batch = await Promise.all(
           top.slice(i, i + 8).map(async (c) => {
-            const hourly = (c.spark7d ?? []).filter((v) => v > 0);
-            const h1 = closesToCandles(hourly.slice(-120)) ?? null;
-            const h4 = closesToCandles(sampleEvery(hourly, 4)) ?? null;
-            const [d1, w1] = await Promise.all([
-              plan.daily === 'none' ? null : plan.daily === 'ma'
-                ? ensureMaKlines([{ symbol: c.symbol, id: c.id }], '1d').then((m) => m.get(c.symbol) ?? null)
-                : getIntervalKlines(c.symbol, c.id, '1d', 60, 120),
-              plan.weekly ? getIntervalKlines(c.symbol, c.id, '1w', 30, 60) : null,
-            ]);
-            return [c.symbol, buildMonData(c, { '1h': h1, '4h': h4, '1d': d1, '1w': w1 })] as const;
+            const { kl, rangeKl } = await fetchMonCoinKlines(c, plan);
+            return [c.symbol, buildMonData(c, kl, rangeKl)] as const;
           }),
         );
         if (!alive) return;
@@ -523,14 +552,24 @@ export function Radar() {
       if (!alive) return;
       setMonData(data);
       const now = Date.now();
-      const fs = loadFirstSeen();
-      let changed = false;
-      for (const m of evalMonitor([...data.values()], activeMonFilters)) {
-        const k = `${m.filterId}:${m.symbol}`;
-        if (!fs[k]) { fs[k] = now; changed = true; }
+      const states: { key: string; filterId: string; symbol: string; state: MonEdgeState }[] = [];
+      let degraded = 0;
+      for (const d of data.values()) {
+        for (const f of validFilters) {
+          const state = evalFilterState(d, f);
+          if (state === 'unknown') degraded += 1;
+          states.push({ key: `${f.id}:${d.symbol}`, filterId: f.id, symbol: d.symbol, state });
+        }
       }
-      if (changed) saveFirstSeen(fs);
-      setMonFirstSeen(fs);
+      // Boot silencioso: ativos persistidos não re-disparam após reload.
+      const { active, events, changed } = diffEdgeEvents(loadMonActive(), states, now);
+      if (changed) {
+        saveMonActive(active);
+        const merged = [...events, ...loadMonEvents()];
+        saveMonEvents(merged);
+        setMonEvents(merged.slice(0, 200));
+      }
+      setMonDegraded(degraded);
       setMonSecs(Math.max(1, Math.round((Date.now() - t0) / 1000)));
       setIndProg(null);
       setIndAt(Date.now());
@@ -539,7 +578,7 @@ export function Radar() {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, monRefresh, activeMonFilters, fetchN]);
+  }, [tab, monRefresh, activeMonFilters, fetchN, monUniverse]);
 
   // Supertrend: 1h/4h do sparkline (instantâneo) + 1d/1s da rede
   useEffect(() => {
@@ -701,28 +740,48 @@ export function Radar() {
     const byId = new Map(allMonFilters.map((f) => [f.id, f]));
     const bySymbol = new Map<string, UniverseCoin>();
     for (const c of rows) if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c);
-    const out: { coin: UniverseCoin; filter: MonFilter; seen: number; why: string }[] = [];
-    for (const md of monData.values()) {
-      const coin = bySymbol.get(md.symbol);
-      if (!coin) continue;
-      if (needle && !coin.symbol.toLowerCase().includes(needle) && !coin.name.toLowerCase().includes(needle)) continue;
-      for (const f of activeMonFilters) {
-        if (!byId.has(f.id)) continue;
-        if (evalFilter(md, f)) {
-          let why = '';
-          try {
-            why = whyFilter(md, f);
-          } catch {
-            /* linha sem porquê */
+    const valid = new Set(activeMonFilters.filter((f) => validateFilter(f).length === 0).map((f) => f.id));
+    const matchQ = (coin: UniverseCoin): boolean =>
+      !needle || coin.symbol.toLowerCase().includes(needle) || coin.name.toLowerCase().includes(needle);
+    const whyOf = (md: MonData | undefined, f: MonFilter): string => {
+      if (!md) return '';
+      try {
+        return whyFilter(md, f);
+      } catch {
+        return '';
+      }
+    };
+    type FeedItem = { coin: UniverseCoin; filter: MonFilter; seen: number; why: string; fresh: boolean };
+    let out: FeedItem[];
+    if (monMode === 'realtime') {
+      // Feed por eventos: últimas bordas inativo→ativo, sem duplicar ativas.
+      out = [];
+      for (const e of monEvents) {
+        const f = byId.get(e.filterId);
+        if (!f || !valid.has(f.id)) continue;
+        const coin = bySymbol.get(e.symbol);
+        if (!coin || !matchQ(coin)) continue;
+        out.push({ coin, filter: f, seen: e.ts, why: whyOf(monData.get(e.symbol), f), fresh: Date.now() - e.ts < 15 * 60 * 1000 });
+      }
+      out.sort((a, b) => b.seen - a.seen);
+    } else {
+      out = [];
+      for (const md of monData.values()) {
+        const coin = bySymbol.get(md.symbol);
+        if (!coin || !matchQ(coin)) continue;
+        for (const f of activeMonFilters) {
+          if (!byId.has(f.id) || !valid.has(f.id)) continue;
+          if (evalFilter(md, f)) {
+            const ev = monEvents.find((x) => x.key === `${f.id}:${md.symbol}`);
+            out.push({ coin, filter: f, seen: ev?.ts ?? 0, why: whyOf(md, f), fresh: false });
           }
-          out.push({ coin, filter: f, seen: monFirstSeen[`${f.id}:${md.symbol}`] ?? 0, why });
         }
       }
+      out.sort((a, b) => b.seen - a.seen);
     }
-    const sorted = out.sort((a, b) => b.seen - a.seen);
-    const scoped = monFavOnly ? sorted.filter((e) => favs.includes(e.coin.symbol)) : sorted;
-    return monMode === 'realtime' ? scoped.filter((e) => Date.now() - e.seen < 90 * 60 * 1000) : scoped;
-  }, [tab, rows, q, monData, activeMonFilters, allMonFilters, monFirstSeen, monMode, monFavOnly, favs]);
+    if (monFavOnly) out = out.filter((e) => favs.includes(e.coin.symbol));
+    return out;
+  }, [tab, rows, q, monData, activeMonFilters, allMonFilters, monEvents, monMode, monFavOnly, favs]);
 
   const virtualizer = useVirtualizer({ count: shown.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW_H, overscan: 12 });
   const vItems = virtualizer.getVirtualItems();
@@ -1327,7 +1386,7 @@ export function Radar() {
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <span> · rate limit — usando cache + backoff</span>}
               {indNote}
-              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}</span>)}
+              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? ` · ${monDegraded} sem dados` : ''}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
             </span>
           }
         >
@@ -1346,8 +1405,8 @@ export function Radar() {
             </div>
             {monFeed.length === 0 ? (
               <MEmpty
-                title={indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : monMode === 'realtime' ? 'Nada acontecendo agora' : 'Nenhum alerta ativo'}
-                hint="Ative filtros no funil ou crie o seu próprio filtro."
+                title={monPaused ?? (indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : monMode === 'realtime' ? 'Nada acontecendo agora' : 'Nenhum alerta ativo')}
+                hint={monPaused ? 'O Monitor retoma sozinho quando o universo carregar.' : 'Ative filtros no funil ou crie o seu próprio filtro.'}
               />
             ) : (
               monFeed.slice(0, 200).map((e) => (
@@ -1372,7 +1431,12 @@ export function Radar() {
                       {monIcon(e.filter.icon)}
                     </span>
                     <span className="min-w-0">
-                      <strong className="block truncate font-semibold text-[var(--text-primary)]">{e.filter.name}</strong>
+                      <strong className="block truncate font-semibold text-[var(--text-primary)]">
+                        {e.filter.name}
+                        {e.fresh && monMode === 'realtime' && (
+                          <span className="ml-1.5 rounded border border-[var(--brand)] px-1 py-px text-[10px] font-bold uppercase tracking-wider text-[var(--brand)]">novo</span>
+                        )}
+                      </strong>
                       {e.why && <span className="block truncate text-xs text-[var(--text-muted)]" title={e.why}>{e.why}</span>}
                     </span>
                   </span>
@@ -1598,18 +1662,36 @@ export function Radar() {
               {monFiltersCustom.length === 0 && <div className="text-xs text-[var(--text-muted)]">Nenhum ainda. Crie o seu abaixo.</div>}
               {monFiltersCustom.map((f) => {
                 const on = !monDisabled.includes(f.id);
+                const issues = monFilterIssues.get(f.id) ?? [];
                 return (
                   <div key={f.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                     <input type="checkbox" checked={on} onChange={() => toggleMonFilter(f.id)} title="Ativar" />
                     <span className="inline-flex h-6 w-6 items-center justify-center text-[var(--text-secondary)]">{monIcon(f.icon)}</span>
-                    <span className="flex-1"><strong className="font-semibold text-[var(--text-primary)]">{f.name}</strong><span className="block text-xs text-[var(--text-muted)]">{f.conditions.length} condição(ões)</span></span>
+                    <span className="flex-1"><strong className="font-semibold text-[var(--text-primary)]">{f.name}</strong><span className="block text-xs text-[var(--text-muted)]">{f.conditions.length} condição(ões)</span>
+                      {issues.length > 0 && (
+                        <span className="mt-0.5 block text-xs font-semibold text-amber-300" title={issues.join(' · ')}>⚠ incompatível: {issues[0]}</span>
+                      )}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setMonDraft({ name: f.name, icon: f.icon, color: f.color, description: f.description ?? '', conditions: f.conditions.map((c) => ({ ...c })) });
+                        setMonEditingId(f.id);
+                        setMonBuilderError(null);
+                        setMonListOpen(false);
+                        setMonBuilderOpen(true);
+                      }}
+                      className="p-1 text-xs font-semibold text-[var(--brand)] transition-colors duration-150 ease-out hover:underline active:scale-[0.98]"
+                      title="Editar filtro"
+                    >
+                      editar
+                    </button>
                     <button onClick={() => removeMonFilter(f.id)} className="p-1 text-xs text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--bear)] active:scale-[0.98]" title="Excluir"><X size={14} /></button>
                   </div>
                 );
               })}
             </div>
             <button
-              onClick={() => { setMonDraft(blankDraft()); setMonListOpen(false); setMonBuilderOpen(true); }}
+              onClick={() => { setMonDraft(blankDraft()); setMonEditingId(null); setMonBuilderError(null); setMonListOpen(false); setMonBuilderOpen(true); }}
               className="mt-3 flex w-full items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold text-[var(--brand)] transition-colors duration-150 ease-out hover:underline active:scale-[0.98]"
             >
               <Plus size={14} /> Novo filtro
@@ -1621,7 +1703,7 @@ export function Radar() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setMonBuilderOpen(false)}>
           <div className="max-h-[85vh] w-full max-w-lg overflow-auto border border-[var(--border)] bg-[var(--surface-1)] p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Novo filtro</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">{monEditingId ? 'Editar filtro' : 'Novo filtro'}</h3>
               <button onClick={() => setMonBuilderOpen(false)} className="p-1 text-[var(--text-muted)] transition-colors duration-150 ease-out hover:text-[var(--text-primary)] active:scale-[0.98]" title="Fechar"><X size={14} /></button>
             </div>
             <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Nome</label>
@@ -1634,9 +1716,14 @@ export function Radar() {
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Ícone</label>
-                <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="mt-1 w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
-                  {MON_ICONS.map((i) => <option key={i.k} value={i.k}>{i.label}</option>)}
-                </select>
+                <div className="mt-1 flex items-center gap-2">
+                  <select value={monDraft.icon} onChange={(e) => setMonDraft((d) => ({ ...d, icon: e.target.value }))} className="w-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
+                    {MON_ICONS.map((i) => <option key={i.k} value={i.k}>{i.label}</option>)}
+                  </select>
+                  <span title="Prévia do ícone" className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[var(--border)] bg-[var(--surface-2)] text-[var(--text-primary)]">
+                    {monIcon(monDraft.icon, 18)}
+                  </span>
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">Cor</label>
@@ -1660,7 +1747,12 @@ export function Radar() {
                     <select value={c.indicator} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
                       const indicator = e.target.value as MonIndicator;
-                      conditions[i] = { indicator, tf: '1d', field: MON_FIELDS[indicator][0].k, op: 'lte', value: 30 };
+                      const prevTf = conditions[i].tf;
+                      conditions[i] = {
+                        indicator,
+                        tf: MON_TF_BY_INDICATOR[indicator].includes(prevTf) ? prevTf : '1d',
+                        field: MON_FIELDS[indicator][0].k, op: 'lte', value: 30,
+                      };
                       return { ...d, conditions };
                     })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
                       {MON_INDICATORS.map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
@@ -1670,7 +1762,7 @@ export function Radar() {
                       conditions[i] = { ...conditions[i], tf: e.target.value as MonTf };
                       return { ...d, conditions };
                     })} className="border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs text-[var(--text-primary)] outline-none focus:border-[var(--brand)]">
-                      {(c.indicator === 'trend' ? MON_TFS.filter((o) => o.k !== '1w') : MON_TFS).map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
+                      {MON_TFS.filter((o) => MON_TF_BY_INDICATOR[c.indicator].includes(o.k)).map((o) => <option key={o.k} value={o.k}>{o.label}</option>)}
                     </select>
                     <select value={c.field} onChange={(e) => setMonDraft((d) => {
                       const conditions = [...d.conditions];
@@ -1681,6 +1773,9 @@ export function Radar() {
                     </select>
                     {c.indicator === 'trend' && (
                       <div className="-mt-1 text-[11px] text-[var(--text-muted)]">Tendência só vale em 1h/4h/1d (semanal não tem consenso).</div>
+                    )}
+                    {(c.indicator === 'ma' || c.indicator === 'attention') && (
+                      <div className="-mt-1 text-[11px] text-[var(--text-muted)]">Este indicador é sempre diário; o timeframe fica travado em 1d.</div>
                     )}
                     {MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint && (
                       <div className="-mt-1 text-[11px] text-[var(--text-muted)]">{MON_FIELDS[c.indicator].find((o) => o.k === c.field)?.hint}</div>
@@ -1748,7 +1843,24 @@ export function Radar() {
               <button
                 onClick={() => {
                   if (!monDraft.name.trim() || !monDraft.conditions.length) return;
-                  addMonFilter({ id: `custom-${Date.now()}`, preset: false, ...monDraft, name: monDraft.name.trim(), description: monDraft.description.trim() });
+                  const bad: string[] = [];
+                  monDraft.conditions.forEach((c, i) => {
+                    const reason = validateCondition(c);
+                    if (reason) bad.push(`condição ${i + 1}: ${reason}`);
+                  });
+                  if (bad.length) {
+                    setMonBuilderError(`Combinação inválida — ${bad[0]}. Ajuste antes de salvar.`);
+                    return;
+                  }
+                  const data = { ...monDraft, name: monDraft.name.trim(), description: monDraft.description.trim() };
+                  if (monEditingId) {
+                    removeMonFilter(monEditingId);
+                    addMonFilter({ ...data, id: monEditingId, preset: false });
+                  } else {
+                    addMonFilter({ id: `custom-${Date.now()}`, preset: false, ...data });
+                  }
+                  setMonEditingId(null);
+                  setMonBuilderError(null);
                   setMonBuilderOpen(false);
                 }}
                 className="flex-1 bg-[var(--brand)] px-3 py-2 text-sm font-semibold text-white transition-opacity duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
@@ -1756,6 +1868,9 @@ export function Radar() {
                 Salvar filtro
               </button>
             </div>
+            {monBuilderError && (
+              <div className="mt-2 text-xs font-semibold text-amber-300">{monBuilderError}</div>
+            )}
           </div>
         </div>
       )}

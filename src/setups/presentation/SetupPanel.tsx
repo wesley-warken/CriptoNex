@@ -124,6 +124,7 @@ export function SetupPanel({ setup: o, logo, ai, onAnalyze, onClose }: SetupPane
             {ai.busy ? 'Analisando…' : ai.text ? 'Analisar de novo' : 'Analisar setup'}
           </button>
           {ai.error && <p className="mt-1 text-sm text-[var(--bear)]">{ai.error}</p>}
+          {ai.badge && ai.text && <p className="mt-1 text-xs text-[var(--text-muted)]">({ai.badge})</p>}
           {ai.text && <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-[var(--text-secondary)]">{ai.text}</p>}
         </Section>
 

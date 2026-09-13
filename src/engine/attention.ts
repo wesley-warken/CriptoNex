@@ -1,5 +1,6 @@
 /**
- * Volume de Atenção: detecta movimentações atípicas de preço.
+ * Movimento Atípico: detecta movimentações atípicas de preço (não é volume
+ * financeiro — nenhuma medida de volume negociado entra no cálculo).
  *
  * Compara a variação de hoje com a média (em módulo) das últimas 10 barras
  * diárias. Se hoje andou ≥2× essa média — para cima ou para baixo —, a moeda

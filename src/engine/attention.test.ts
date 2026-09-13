@@ -11,7 +11,7 @@ function chop(n: number, pct = 1, start = 100): number[] {
   return out;
 }
 
-describe('volume de atenção', () => {
+describe('movimento atípico (preço, não volume)', () => {
   it('sinaliza valorização ≥2× a média de 10 barras', () => {
     const closes = chop(11, 1);
     const last = closes[closes.length - 1];

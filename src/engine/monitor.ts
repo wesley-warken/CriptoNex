@@ -57,7 +57,7 @@ export const MON_INDICATORS: { k: MonIndicator; label: string }[] = [
   { k: 'stoch', label: 'Estocástico' },
   { k: 'macd', label: 'MACD' },
   { k: 'super', label: 'Supertrend' },
-  { k: 'attention', label: 'Volume de Atenção' },
+  { k: 'attention', label: 'Movimento Atípico' },
   { k: 'ma', label: 'Médias (diário)' },
   { k: 'sr', label: 'Suporte/Resistência' },
 ];
@@ -88,6 +88,47 @@ export const MON_FIELDS: Record<MonIndicator, { k: string; label: string; hint?:
     { k: 'distRes', label: 'Dist. Resistência %', hint: '% até a resistência de 20 (≤0 = rompeu)' },
   ],
 };
+
+/**
+ * Matriz indicador × timeframes suportados (fonte única da verdade;
+ * espelha o que resolveValue/buildMonData realmente avaliam).
+ * attention/ma ignoram o seletor (sempre diário); trend não tem semanal.
+ */
+export const MON_TF_BY_INDICATOR: Record<MonIndicator, MonTf[]> = {
+  trend: ['1h', '4h', '1d'],
+  rsi: ['1h', '4h', '1d', '1w'],
+  stoch: ['1h', '4h', '1d', '1w'],
+  macd: ['1h', '4h', '1d', '1w'],
+  super: ['1h', '4h', '1d', '1w'],
+  attention: ['1d'],
+  ma: ['1d'],
+  sr: ['1h', '4h', '1d', '1w'],
+};
+
+/** null = combinação válida; string = motivo da incompatibilidade. */
+export function validateCondition(c: MonCondition): string | null {
+  const tfs = MON_TF_BY_INDICATOR[c.indicator];
+  if (!tfs) return `indicador desconhecido (${c.indicator})`;
+  if (!tfs.includes(c.tf)) {
+    const ind = MON_INDICATORS.find((o) => o.k === c.indicator)?.label ?? c.indicator;
+    return `${ind} não suporta o timeframe ${c.tf} (vale: ${tfs.join(', ')})`;
+  }
+  if (!MON_FIELDS[c.indicator].some((o) => o.k === c.field)) {
+    return `campo desconhecido (${c.field}) para este indicador`;
+  }
+  return null;
+}
+
+/** Motivos de incompatibilidade do filtro (vazio = válido). */
+export function validateFilter(f: MonFilter): string[] {
+  if (!f.conditions.length) return ['filtro sem condições'];
+  const out: string[] = [];
+  f.conditions.forEach((c, i) => {
+    const reason = validateCondition(c);
+    if (reason) out.push(`condição ${i + 1}: ${reason}`);
+  });
+  return out;
+}
 
 /** Níveis da tendência para o construtor de filtros. */
 export const TREND_LEVEL_OPTIONS = [
@@ -142,9 +183,21 @@ const safe = <T>(fn: () => T): T | null => {
   }
 };
 
-/** Monta todos os valores avaliáveis de uma moeda a partir dos klines por tempo. */
-export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | null>): MonData {
+/**
+ * Monta todos os valores avaliáveis de uma moeda a partir dos klines por tempo.
+ * `kl` é a base de closes (sintético do sparkline ou real — vale para os
+ * indicadores close-only: RSI/MACD/SMA/EMA/BB/atenção/SR). `rangeKl` traz o
+ * OHLC REAL por TF para Estocástico/Supertrend/voto-Stoch; TF ausente aqui =
+ * sem range confiável (esses indicadores ficam null = indisponível, sem
+ * votar no fictício). Sem `rangeKl`, usa `kl` (comportamento legado).
+ */
+export function buildMonData(
+  coin: UniverseCoin,
+  kl: Record<MonTf, Candle[] | null>,
+  rangeKl?: Partial<Record<MonTf, Candle[] | null>>,
+): MonData {
   const get = (tf: MonTf): Candle[] => kl[tf] ?? [];
+  const rangeOf = (tf: MonTf): Candle[] => (rangeKl ? (rangeKl[tf] ?? []) : get(tf));
   const closesOf = (tf: MonTf): number[] => get(tf).map((k) => k.close);
   const rsi: Record<MonTf, number | null> = { '1h': null, '4h': null, '1d': null, '1w': null };
   const stochK: Record<MonTf, number | null> = { '1h': null, '4h': null, '1d': null, '1w': null };
@@ -154,13 +207,16 @@ export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | nu
   (Object.keys(rsi) as MonTf[]).forEach((tf) => {
     const k = get(tf);
     if (k.length >= 30) rsi[tf] = num(safe(() => rsiWithAvg(k).rsi));
-    if (k.length >= 15) {
-      const s = safe(() => calcStoch(k));
+    // Range (high/low) só vale com OHLC real da exchange: sintético de
+    // closes tem range fictício (±0,05%) e forjaria Estocástico/Supertrend.
+    const rk = rangeOf(tf);
+    if (rk.length >= 15) {
+      const s = safe(() => calcStoch(rk));
       stochK[tf] = num(s?.k ?? null);
       stochD[tf] = num(s?.d ?? null);
     }
     if (k.length >= 35) macd[tf] = num(safe(() => calcMACD(k).hist));
-    if (k.length >= 15) sup[tf] = safe(() => calcSupertrendFull(k))?.dir ?? null;
+    if (rk.length >= 15) sup[tf] = safe(() => calcSupertrendFull(rk))?.dir ?? null;
   });
   const c1d = closesOf('1d');
   const att = c1d.length >= 12 ? safe(() => unusualMove(c1d)) : null;
@@ -186,19 +242,23 @@ export function buildMonData(coin: UniverseCoin, kl: Record<MonTf, Candle[] | nu
   // 1d sem klines: cold-start % dos campos do universo; com klines: consenso.
   // Tendência multi-TF: cada perna no seu timeframe (1d → 4h/diário/semanal).
   // 1d sem klines: cold-start % dos campos do universo.
-  const ohlcOf = (kl: Candle[] | null): TrendOhlc | null =>
-    kl && kl.length >= 15
-      ? { closes: kl.map((k) => k.close), highs: kl.map((k) => k.high), lows: kl.map((k) => k.low) }
-      : null;
-  const k1d = get('1d');
-  const k1h = get('1h');
-  const k4h = get('4h');
-  const k1w = get('1w');
+  const ohlcOf = (tf: MonTf): TrendOhlc | null => {
+    // Perna real disponível: usa a série real inteira (closes+range alinhados).
+    const rk = rangeOf(tf);
+    if (rk.length >= 15) {
+      return { closes: rk.map((k) => k.close), highs: rk.map((k) => k.high), lows: rk.map((k) => k.low) };
+    }
+    // Sem range real: closes sintéticos com highs/lows vazios — o voto-Stoch
+    // abstém-se (hasRange exige mesmos comprimentos) em vez de votar no fictício.
+    const kl = get(tf);
+    if (!kl || kl.length < 15) return null;
+    return { closes: kl.map((k) => k.close), highs: [], lows: [] };
+  };
   const rec = {
-    '1h': ohlcOf(k1h.length ? k1h : null),
-    '4h': ohlcOf(k4h.length ? k4h : null),
-    '1d': ohlcOf(k1d.length ? k1d : null),
-    '1w': ohlcOf(k1w.length ? k1w : null),
+    '1h': ohlcOf('1h'),
+    '4h': ohlcOf('4h'),
+    '1d': ohlcOf('1d'),
+    '1w': ohlcOf('1w'),
   };
   return {
     symbol: coin.symbol,
@@ -261,20 +321,46 @@ export function resolveValue(d: MonData, c: MonCondition): number | null {
 }
 
 export function evalCondition(d: MonData, c: MonCondition): boolean {
+  return evalConditionState(d, c) === 'active';
+}
+
+/**
+ * Estado triplo da condição: 'active' | 'inactive' | 'unknown'.
+ * Falha de dado (resolveValue null) é 'unknown' — NUNCA false, para uma
+ * queda de rede não forjar borda falsa de saída/retorno.
+ */
+export type MonEdgeState = 'active' | 'inactive' | 'unknown';
+
+export function evalConditionState(d: MonData, c: MonCondition): MonEdgeState {
   const v = resolveValue(d, c);
-  if (v == null) return false;
+  if (v == null) return 'unknown';
   switch (c.op) {
-    case 'gte': return v >= c.value;
-    case 'lte': return v <= c.value;
-    case 'gt': return v > c.value;
-    case 'lt': return v < c.value;
-    case 'eq': return Math.abs(v - c.value) < 1e-9;
+    case 'gte': return v >= c.value ? 'active' : 'inactive';
+    case 'lte': return v <= c.value ? 'active' : 'inactive';
+    case 'gt': return v > c.value ? 'active' : 'inactive';
+    case 'lt': return v < c.value ? 'active' : 'inactive';
+    case 'eq': return Math.abs(v - c.value) < 1e-9 ? 'active' : 'inactive';
   }
 }
 
 /** Filtro casa quando tem ≥1 condição e TODAS passam (AND). */
 export function evalFilter(d: MonData, f: MonFilter): boolean {
-  return f.conditions.length > 0 && f.conditions.every((c) => evalCondition(d, c));
+  return evalFilterState(d, f) === 'active';
+}
+
+/**
+ * Estado triplo do filtro (lógica 3VL: false domina; senão unknown se
+ * houver condição desconhecida, senão active). Filtro vazio = inactive.
+ */
+export function evalFilterState(d: MonData, f: MonFilter): MonEdgeState {
+  if (!f.conditions.length) return 'inactive';
+  let sawUnknown = false;
+  for (const c of f.conditions) {
+    const s = evalConditionState(d, c);
+    if (s === 'inactive') return 'inactive';
+    if (s === 'unknown') sawUnknown = true;
+  }
+  return sawUnknown ? 'unknown' : 'active';
 }
 
 const OP_SYMBOL: Record<MonOp, string> = { gte: '≥', lte: '≤', gt: '>', lt: '<', eq: '=' };
@@ -317,36 +403,26 @@ export function whyFilter(d: MonData, f: MonFilter): string {
   }).join(' · ');
 }
 
-export interface MonMatch {
-  symbol: string;
-  filterId: string;
-}
-
-export function evalMonitor(data: MonData[], filters: MonFilter[]): MonMatch[] {
-  const out: MonMatch[] = [];
-  for (const d of data) {
-    for (const f of filters) {
-      if (evalFilter(d, f)) out.push({ symbol: d.symbol, filterId: f.id });
-    }
-  }
-  return out;
-}
-
 /** O que precisa ser buscado na rede para avaliar estes filtros (resto vem do universo/spark). */
 export interface MonDataPlan {
   /** 'ma': diário 250 (médias) · 'kl': diário ~120 (indicadores) · 'none': nada */
   daily: 'ma' | 'kl' | 'none';
   weekly: boolean;
+  /** Timeframes onde algum filtro avalia indicador de range (stoch/super/voto-Stoch): exigem OHLC real. */
+  rangeTf: MonTf[];
 }
 
 export function planMonitorData(filters: MonFilter[]): MonDataPlan {
   let needMA = false;
   let needDaily = false;
   let needW = false;
+  const range = new Set<MonTf>();
   for (const f of filters) {
     for (const c of f.conditions) {
-      // Tendência nunca precisa de rede (1d: campos do universo · 1h/4h: sparkline)
+      // Tendência não força fetch real sozinha: o voto-Stoch abstém-se nas
+      // pernas sintéticas; quando outro indicador busca o TF real, ela aproveita.
       if (c.indicator === 'trend') continue;
+      if (c.indicator === 'stoch' || c.indicator === 'super') range.add(c.tf);
       if (c.indicator === 'ma') needMA = true;
       else if (c.indicator === 'attention') needDaily = true;
       else if (c.indicator === 'sr' && (c.tf === '1d' || c.tf === '1w')) {
@@ -358,7 +434,7 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
       // 1h/4h (rsi/stoch/macd/super/sr): sparkline do universo — zero fetch
     }
   }
-  return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW };
+  return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW, rangeTf: [...range] };
 }
 
 // ---- Filtros prontos ----
@@ -415,21 +491,133 @@ export const PRESET_FILTERS: MonFilter[] = [
     ]),
 ];
 
-// ---- firstSeen (quando cada alerta acendeu pela 1ª vez) ----
-const FS_KEY = 'cc.monitor.firstSeen';
-export function loadFirstSeen(): Record<string, number> {
+// ---- Bordas de ativação (realtime de verdade) ----
+
+/** Limite de eventos guardados no feed realtime. */
+export const MON_EVENTS_CAP = 200;
+
+export interface MonEdgeEvent {
+  /** `${filterId}:${symbol}` */
+  key: string;
+  filterId: string;
+  symbol: string;
+  /** Timestamp da transição inativo→ativo. */
+  ts: number;
+}
+
+/**
+ * Diferença por borda: só `inactive/ausente → active` vira evento, com o
+ * timestamp da transição. 'unknown' (falha de dado) mantém o estado
+ * anterior — nunca forja saída nem retorno. Puro e testável.
+ */
+export function diffEdgeEvents(
+  prevActive: Record<string, true>,
+  states: { key: string; filterId: string; symbol: string; state: MonEdgeState }[],
+  now: number,
+): { active: Record<string, true>; events: MonEdgeEvent[]; changed: boolean } {
+  const active: Record<string, true> = {};
+  const events: MonEdgeEvent[] = [];
+  let changed = false;
+  const seen = new Set<string>();
+  for (const s of states) {
+    if (seen.has(s.key)) continue;
+    seen.add(s.key);
+    if (s.state === 'active') {
+      active[s.key] = true;
+      if (!prevActive[s.key]) {
+        events.push({ key: s.key, filterId: s.filterId, symbol: s.symbol, ts: now });
+        changed = true;
+      }
+    } else if (s.state === 'unknown' && prevActive[s.key]) {
+      // Falha transitória com condição ativa antes: mantém ativo, sem evento.
+      active[s.key] = true;
+    } else if (s.state === 'inactive' && prevActive[s.key]) {
+      changed = true;
+    }
+  }
+  if (!changed) {
+    // Nada mudou: mantém o mapa anterior (evita churn de objeto).
+    let same = true;
+    for (const k of Object.keys(active)) if (!prevActive[k]) { same = false; break; }
+    if (same) for (const k of Object.keys(prevActive)) if (!active[k]) { same = false; break; }
+    if (same) return { active: prevActive, events, changed: false };
+  }
+  return { active, events, changed };
+}
+
+const MON_ACTIVE_KEY = 'cc.monitor.active';
+const MON_EVENTS_KEY = 'cc.monitor.events';
+
+/** Conjunto ativo persistido (sobrevive ao reload: ativo antes ≠ novo alerta). */
+export function loadMonActive(): Record<string, true> {
   try {
-    const raw = localStorage.getItem(FS_KEY);
-    const j = raw ? JSON.parse(raw) as Record<string, number> : {};
+    const raw = localStorage.getItem(MON_ACTIVE_KEY);
+    const j = raw ? JSON.parse(raw) as Record<string, true> : {};
     return j && typeof j === 'object' ? j : {};
   } catch {
     return {};
   }
 }
-export function saveFirstSeen(m: Record<string, number>): void {
+
+export function saveMonActive(m: Record<string, true>): void {
   try {
-    localStorage.setItem(FS_KEY, JSON.stringify(m));
+    localStorage.setItem(MON_ACTIVE_KEY, JSON.stringify(m));
   } catch {
     /* armazenamento cheio */
   }
+}
+
+/** Últimas bordas por chave (cap 200, mais recentes primeiro ao ler). */
+export function loadMonEvents(): MonEdgeEvent[] {
+  try {
+    const raw = localStorage.getItem(MON_EVENTS_KEY);
+    const j = raw ? JSON.parse(raw) as MonEdgeEvent[] : [];
+    if (!Array.isArray(j)) return [];
+    return j
+      .filter((e) => e && typeof e.key === 'string' && typeof e.ts === 'number')
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, MON_EVENTS_CAP);
+  } catch {
+    return [];
+  }
+}
+
+export function saveMonEvents(events: MonEdgeEvent[]): void {
+  try {
+    const byKey = new Map<string, MonEdgeEvent>();
+    for (const e of [...events].sort((a, b) => b.ts - a.ts)) {
+      if (!byKey.has(e.key)) byKey.set(e.key, e);
+    }
+    localStorage.setItem(MON_EVENTS_KEY, JSON.stringify([...byKey.values()].slice(0, MON_EVENTS_CAP)));
+  } catch {
+    /* armazenamento cheio */
+  }
+}
+
+/**
+ * Universo do Monitor: sempre Top N por market cap (rank oficial, senão
+ * ordenação por marketCap). Nunca a ordem visual da tabela. Retorna vazio
+ * quando não há market cap carregado — o chamador pausa com aviso.
+ */
+export function selectTopByMcap(
+  coins: UniverseCoin[],
+  topN: number | null,
+  fetchN: number,
+): UniverseCoin[] {
+  const withMcap = coins.filter((c) => (c.marketCap ?? 0) > 0);
+  if (!withMcap.length) return [];
+  if (topN == null) {
+    return [...withMcap]
+      .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
+      .slice(0, fetchN);
+  }
+  const hasOfficial = withMcap.some((c) => c.rank != null);
+  const pool = hasOfficial
+    ? withMcap.filter((c) => (c.rank ?? Infinity) <= topN)
+    : [...withMcap]
+      .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
+      .slice(0, topN);
+  return pool
+    .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
+    .slice(0, fetchN);
 }
