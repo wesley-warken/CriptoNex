@@ -388,7 +388,7 @@ const bGap = (g: number | null): string => (g == null ? '' : `, gap ${bSigned(g)
 /**
  * Prompt do brief (especificação do usuário): carrega SOMENTE os números
  * fornecidos e impõe interpretação honesta (DADO vs SINAL vs CONTEXTO,
- * N/A nunca vira zero nem conclusão), 150–250 palavras, 5 seções ancoradas.
+ * N/A nunca vira zero nem conclusão), no máximo 200 palavras, 5 seções ancoradas.
  */
 export function buildMorningBriefPrompt(i: MorningBriefInput): string {
   const sectors = [
@@ -445,7 +445,7 @@ export function buildBriefHeadline(i: MorningBriefInput): string {
 
 /**
  * Template determinístico do brief (fallback sem IA): mesmas 5 seções com
- * os números reais, 150–250 palavras, sem hype. Garante leitura <60s sempre.
+ * os números reais, sem hype. Garante leitura <60s sempre.
  */
 export function buildBriefTemplate(i: MorningBriefInput): string {
   const lead = i.sectorsTop[0] ? ` liderado por ${i.sectorsTop[0].label} (${bSigned(i.sectorsTop[0].chg)}%)` : '';
