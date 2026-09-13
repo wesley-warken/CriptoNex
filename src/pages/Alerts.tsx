@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore, type PriceAlert } from '@/stores/useStore';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
-import { binanceKlines, type BinanceInterval } from '@/services/providers/binance';
+import { binanceKlines, binancePrices, type BinanceInterval } from '@/services/providers/binance';
 import { useUniverseCrypto } from '@/services/universeHooks';
 import { describeCondition, evaluateScan, type AlertCondition, type CondIndicator, type CondOp, type CustomScan } from '@/engine/scanConditions';
+import { normalizeAlertSymbol, resolveAlertSymbol, UNIVERSE_EMPTY } from '@/services/alertEngine';
 import { Panel, PanelTitle } from '@/components/ui/kit';
 import { MSection } from '@/components/minimal/MSection';
 import { MStats, MDot } from '@/components/minimal/MStats';
@@ -44,16 +45,54 @@ export function Alerts() {
   const [kind, setKind] = useState<'crypto' | 'stock'>('crypto');
   const [condition, setCondition] = useState<'above' | 'below'>('above');
   const [price, setPrice] = useState('');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const u = useUniverseCrypto();
 
   const active = alerts.filter((a) => a.active);
   const history = alerts.filter((a) => !a.active);
 
-  const create = () => {
+  const create = async () => {
     const p = Number(price);
-    if (!symbol.trim() || !(p > 0)) return;
+    setFormError(null);
+    if (!symbol.trim() || !(p > 0)) {
+      setFormError('Informe o símbolo e um preço alvo maior que zero.');
+      return;
+    }
+    let sym: string;
+    const r = resolveAlertSymbol(kind, symbol, u.coins);
+    if (!r.ok) {
+      // Universo ainda vazio: valida o par direto na Binance antes de desistir.
+      if (kind === 'crypto' && r.reason === UNIVERSE_EMPTY) {
+        const cand = normalizeAlertSymbol(symbol);
+        setChecking(true);
+        try {
+          const px = await binancePrices([`${cand}USDT`]);
+          if (px[`${cand}USDT`] == null) {
+            setFormError(`Cripto "${cand}" não encontrada na Binance. Confira o símbolo.`);
+            return;
+          }
+          sym = cand;
+        } catch {
+          setFormError('Sem conexão para validar o símbolo. Tente de novo.');
+          return;
+        } finally {
+          setChecking(false);
+        }
+      } else {
+        setFormError(r.reason);
+        return;
+      }
+    } else {
+      sym = r.symbol;
+    }
+    if (alerts.some((a) => a.active && a.kind === kind && a.symbol === sym && a.condition === condition && a.price === p)) {
+      setFormError('Já existe um alerta ativo igual a esse.');
+      return;
+    }
     const a: PriceAlert = {
       id: `${Date.now()}`,
-      symbol: symbol.trim().toUpperCase(),
+      symbol: sym!,
       kind,
       condition,
       price: p,
@@ -141,9 +180,9 @@ export function Alerts() {
           </select>
           <input
             value={symbol}
-            onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+            onChange={(e) => { setSymbol(e.target.value.toUpperCase()); setFormError(null); }}
             placeholder="Símbolo (BTC, PETR4…)"
-            className="border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 font-bold tabular-nums text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out placeholder:text-[var(--text-muted)] focus:border-[var(--brand)]"
+            className={`border bg-[var(--surface-1)] px-3 py-2 font-bold tabular-nums text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--brand)] ${formError ? 'border-[var(--bear)]' : 'border-[var(--border)]'}`}
           />
           <select
             value={condition}
@@ -162,12 +201,16 @@ export function Alerts() {
             className="border border-[var(--border)] bg-[var(--surface-1)] px-3 py-2 text-right font-bold tabular-nums text-[var(--text-primary)] outline-none transition-colors duration-150 ease-out placeholder:text-[var(--text-muted)] focus:border-[var(--brand)]"
           />
           <button
-            onClick={create}
-            className="bg-[var(--brand)] px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white transition-opacity duration-150 ease-out hover:opacity-90 active:scale-[0.98]"
+            onClick={() => void create()}
+            disabled={checking}
+            className="bg-[var(--brand)] px-4 py-2 text-xs font-semibold uppercase tracking-wider text-white transition-opacity duration-150 ease-out hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
           >
-            + Criar Alerta
+            {checking ? 'Validando…' : '+ Criar Alerta'}
           </button>
         </div>
+        {formError && (
+          <p className="mt-2 text-xs font-semibold text-[var(--bear)]">{formError}</p>
+        )}
         <p className="mt-2.5 text-xs text-[var(--text-muted)]">
           Avaliação automática a cada ciclo de dados. Disparo único com sinal sonoro; reative a qualquer momento para novo ciclo.
         </p>

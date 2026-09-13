@@ -1,4 +1,5 @@
 import { fetchWithTimeout } from '@/services/cache';
+import { isLocalhost } from '@/services/lookup';
 
 export interface NewsItem {
   id: string;
@@ -48,7 +49,7 @@ export function macroByKeywords(items: NewsItem[]): NewsItem[] {
  * feed cripto. Nunca throw: sem nada, lista vazia honesta.
  */
 export async function fetchMacroNews(count = 3, hours = 12): Promise<{ items: NewsItem[]; errors: string[]; fallback: boolean }> {
-  const inDev = typeof window !== 'undefined' && window.location.port === '5173';
+  const inDev = isLocalhost();
   const errors: string[] = [];
   const found: NewsItem[] = [];
   await Promise.all(
