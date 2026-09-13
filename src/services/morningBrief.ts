@@ -108,6 +108,8 @@ export interface UsQuotes {
   dxyChg: number | null;
   sectorsTop: { label: string; chg: number }[];
   sectorsBottom: { label: string; chg: number }[];
+  /** true quando o S&P não é da sessão NY de hoje (fim de semana, feriado, feed fora) — o brief deve rotular. */
+  stale?: boolean;
 }
 
 async function sectorChg(s: { symbol: string; label: string }): Promise<{ label: string; chg: number } | null> {
@@ -143,7 +145,13 @@ export async function fetchUsQuotes(): Promise<UsQuotes> {
     dxyChg,
     sectorsTop: sectors.slice(0, 3),
     sectorsBottom: sectors.slice(-3).reverse(),
+    stale: !spx.fresh,
   };
+}
+
+/** Rótulo honesto da data do brief: dado velho não se passa por hoje. */
+export function briefDateLabel(todayBrt: string, stale?: boolean): string {
+  return stale ? `${todayBrt} · último pregão disponível` : todayBrt;
 }
 
 /**

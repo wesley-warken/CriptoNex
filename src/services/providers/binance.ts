@@ -1,13 +1,17 @@
 import type { Candle } from '@/types';
 import { fetchWithTimeout, retry } from '@/services/cache';
+import { isLocalhost } from '@/services/lookup';
 
-const BASE = 'https://api.binance.com/api/v3';
+/** Dev local: via proxy /api/binance do vite (direto cai no CORS do browser). */
+export function binanceBase(): string {
+  return isLocalhost() ? '/api/binance/api/v3' : 'https://api.binance.com/api/v3';
+}
 export type BinanceInterval = '1h' | '4h' | '1d' | '1w';
 const MAP: Record<BinanceInterval, string> = { '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w' };
 
 export async function binanceKlines(symbol: string, interval: BinanceInterval, limit = 220): Promise<Candle[]> {
   return retry(async () => {
-    const r = await fetchWithTimeout(`${BASE}/klines?symbol=${symbol}&interval=${MAP[interval]}&limit=${limit}`);
+    const r = await fetchWithTimeout(`${binanceBase()}/klines?symbol=${symbol}&interval=${MAP[interval]}&limit=${limit}`);
     if (!r.ok) throw new Error(`Binance ${r.status}`);
     const raw = (await r.json()) as unknown[][];
     return raw.map((k) => ({
@@ -21,7 +25,7 @@ export async function binanceKlines(symbol: string, interval: BinanceInterval, l
   });
 }
 export async function binancePrices(symbols: string[]): Promise<Record<string, number>> {
-  const r = await fetchWithTimeout(`${BASE}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
+  const r = await fetchWithTimeout(`${binanceBase()}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(symbols))}`);
   if (!r.ok) throw new Error(`Binance prices ${r.status}`);
   const arr = (await r.json()) as { symbol: string; price: string }[];
   const out: Record<string, number> = {};

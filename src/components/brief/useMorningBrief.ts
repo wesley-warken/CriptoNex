@@ -4,7 +4,7 @@ import {
   generateBrief, aiRemaining,
 } from '@/services/aiAnalysis';
 import {
-  briefSeenToday, composeBriefInput, fetchUsQuotes, inBriefWindow,
+  briefDateLabel, briefSeenToday, composeBriefInput, fetchUsQuotes, inBriefWindow,
   markBriefSeen, pct48h, readElites, todayBrt, type UsQuotes,
 } from '@/services/morningBrief';
 import { fetchMacroNews } from '@/services/news';
@@ -103,7 +103,7 @@ export function useMorningBrief(
   const input = useMemo(() => {
     if (!quotes) return null;
     return composeBriefInput({
-      dateBrt: todayBrt(),
+      dateBrt: briefDateLabel(todayBrt(), quotes.stale),
       quotes,
       btc: { price: btc?.price ?? null, chg24: btc?.change24h ?? null },
       eth: { price: eth?.price ?? null, chg24: eth?.change24h ?? null },

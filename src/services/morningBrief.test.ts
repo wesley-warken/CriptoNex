@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  dayKeyInTz, todayBrt, inBriefWindow, btcCorrMode, pct48h,
+  dayKeyInTz, todayBrt, inBriefWindow, btcCorrMode, pct48h, briefDateLabel,
   computeDivergences, pickElites, composeBriefInput, type UsQuotes,
 } from './morningBrief';
 import type { Setup } from '@/setups/domain/entities';
@@ -78,5 +78,15 @@ describe('composeBriefInput amarra flags + correlação', () => {
     expect(i.btcCorr48.mode).toBe('desacoplado');
     expect(i.flags).toHaveLength(1);
     expect(i.elites[0].symbol).toBe('NVDA');
+  });
+});
+
+describe('briefDateLabel (dado velho não se passa por hoje)', () => {
+  it('fresco: data pura', () => {
+    expect(briefDateLabel('13/09/2026')).toBe('13/09/2026');
+    expect(briefDateLabel('13/09/2026', false)).toBe('13/09/2026');
+  });
+  it('stale: rotula último pregão', () => {
+    expect(briefDateLabel('13/09/2026', true)).toBe('13/09/2026 · último pregão disponível');
   });
 });

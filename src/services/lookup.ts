@@ -5,16 +5,30 @@ import type { Candle } from '@/types';
 
 const QUOTE_TTL_MS = 60_000;
 
+/**
+ * Dev local em qualquer porta (5173, 5174…): usa os proxies /api/* do
+ * vite em vez de chamar Yahoo/Binance direto (CORS bloqueia no browser).
+ * Antes era só porta 5173 — na 5174 tudo do Yahoo caía em N/A.
+ */
+export function isLocalhost(): boolean {
+  try {
+    const h = typeof window !== 'undefined' ? window.location.hostname : '';
+    return h === 'localhost' || h === '127.0.0.1' || h === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 function lookupBases(): string[] {
-  if (typeof window !== 'undefined' && window.location.port === '5173') {
-    return ['/api/ylookup', 'https://query2.finance.yahoo.com'];
+  if (isLocalhost()) {
+    return ['/api/ylookup', 'https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
   }
   return ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
 }
 
 function chartBases(): string[] {
-  if (typeof window !== 'undefined' && window.location.port === '5173') {
-    return ['/api/yahoo', 'https://query2.finance.yahoo.com'];
+  if (isLocalhost()) {
+    return ['/api/yahoo', 'https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
   }
   return ['https://query1.finance.yahoo.com', 'https://query2.finance.yahoo.com'];
 }
@@ -54,7 +68,8 @@ export interface YahooQuote {
 
 /** Somente /v8/finance/chart (endpoint público estável), com fallback query1→query2. */
 export async function yahooChart(symbol: string, range = '3mo', interval = '1d', ttlMs: number = QUOTE_TTL_MS): Promise<YahooQuote> {
-  const cached = await idbGet<YahooQuote>(`${IDB_KEYS.quotes}:yh:${symbol}:${range}`);
+  const key = `${IDB_KEYS.quotes}:yh:${symbol}:${range}`;
+  const cached = await idbGet<YahooQuote>(key);
   if (cached && Date.now() - cached.ts < ttlMs && cached.data.price != null) return cached.data;
   let lastErr: unknown = null;
   for (const base of chartBases()) {
@@ -95,11 +110,14 @@ export async function yahooChart(symbol: string, range = '3mo', interval = '1d',
         prevClose: prev ?? null,
         lastTime: candles.length ? candles[candles.length - 1].time : null,
       };
-      await idbSet(`${IDB_KEYS.quotes}:yh:${symbol}:${range}`, out, ttlMs);
+      await idbSet(key, out, ttlMs);
       return out;
     } catch (e) {
       lastErr = e;
     }
   }
+  // Rede falhou em todas as bases: serve o último cache (stale) em vez de
+  // N/A — dado de minutos/horas atrás vale mais que nada no brief.
+  if (cached && cached.data.price != null) return cached.data;
   throw lastErr instanceof Error ? lastErr : new Error('Yahoo chart indisponível');
 }
