@@ -954,6 +954,7 @@ export function Radar() {
     <span className="text-xs normal-case tabular-nums text-zinc-500">
       {indProg ? ` calculando ${indProg.done}/${indProg.total}…` : ` top ${fetchN} por market cap · ${indCount} com indicadores`}
       {tab === 'RSI' && rsiPartial && !indProg && ' · Binance fora, via alternativas (lento)'}
+      {tab === 'RSI' && !indProg && ' · OHLC real de exchange (paridade TV); "—" = indisponível'}
       {tab === 'SR' && !indProg && ' · base semanal (5 diários fechados = Monitor no 1d)'}
       {!indProg && indAt && ` · calculado ${dataAge(indAt)}`}
     </span>

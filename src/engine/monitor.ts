@@ -9,7 +9,7 @@
 import type { Candle } from '@/types';
 import type { UniverseCoin } from '@/services/universeTypes';
 import { coinTrend, coinTrendMultiTF, TREND_LEVEL, type CoinTrend, type TrendOhlc } from '@/engine/trend';
-import { calcMACD, calcStoch, calcSupertrendFull, rsiWithAvg } from '@/engine/indicators';
+import { calcMACD, calcStoch, calcSupertrendFull, rsiWithAvg, RSI_MIN_BARS } from '@/engine/indicators';
 import { computeMaSet, type MaSet } from '@/services/maTable';
 import { unusualMove } from '@/engine/attention';
 
@@ -206,7 +206,8 @@ export function buildMonData(
   const sup: Record<MonTf, 'BULLISH' | 'BEARISH' | null> = { '1h': null, '4h': null, '1d': null, '1w': null };
   (Object.keys(rsi) as MonTf[]).forEach((tf) => {
     const k = get(tf);
-    if (k.length >= 30) rsi[tf] = num(safe(() => rsiWithAvg(k).rsi));
+    // Warmup de Wilder (paridade TV): abaixo de 100 barras o valor desloca.
+    if (k.length >= RSI_MIN_BARS) rsi[tf] = num(safe(() => rsiWithAvg(k).rsi));
     // Range (high/low) só vale com OHLC real da exchange: sintético de
     // closes tem range fictício (±0,05%) e forjaria Estocástico/Supertrend.
     const rk = rangeOf(tf);
@@ -410,6 +411,8 @@ export interface MonDataPlan {
   weekly: boolean;
   /** Timeframes onde algum filtro avalia indicador de range (stoch/super/voto-Stoch): exigem OHLC real. */
   rangeTf: MonTf[];
+  /** Timeframes onde algum filtro avalia RSI: exigem closes reais (paridade TV). */
+  rsiTf: MonTf[];
 }
 
 export function planMonitorData(filters: MonFilter[]): MonDataPlan {
@@ -417,12 +420,14 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
   let needDaily = false;
   let needW = false;
   const range = new Set<MonTf>();
+  const rsi = new Set<MonTf>();
   for (const f of filters) {
     for (const c of f.conditions) {
       // Tendência não força fetch real sozinha: o voto-Stoch abstém-se nas
       // pernas sintéticas; quando outro indicador busca o TF real, ela aproveita.
       if (c.indicator === 'trend') continue;
       if (c.indicator === 'stoch' || c.indicator === 'super') range.add(c.tf);
+      if (c.indicator === 'rsi') rsi.add(c.tf);
       if (c.indicator === 'ma') needMA = true;
       else if (c.indicator === 'attention') needDaily = true;
       else if (c.indicator === 'sr' && (c.tf === '1d' || c.tf === '1w')) {
@@ -434,7 +439,7 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
       // 1h/4h (rsi/stoch/macd/super/sr): sparkline do universo — zero fetch
     }
   }
-  return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW, rangeTf: [...range] };
+  return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW, rangeTf: [...range], rsiTf: [...rsi] };
 }
 
 // ---- Filtros prontos ----

@@ -2,7 +2,7 @@ import { fetchWithTimeout } from '@/services/cache';
 import { coinHistory, coinHistoryHours } from '@/services/history';
 import { closesToCandles } from '@/services/indicatorTable';
 import { multiKlines, probeBinance, isFresh, type KlineInterval } from '@/services/providers/multiKlines';
-import { rsiWithAvg } from '@/engine/indicators';
+import { rsiWithAvg, RSI_MIN_BARS } from '@/engine/indicators';
 import { idbGet, idbSet } from '@/lib/idb';
 import type { Candle } from '@/types';
 
@@ -38,7 +38,6 @@ export function rsiBand(v: number | null | undefined): 'low' | 'mid' | 'high' | 
 
 const TTL = 2 * 60 * 60 * 1000;
 const TOP_N = 100;
-const KLINES_LIMIT = 60;
 
 const TF_MAP: { tf: RsiTf; interval: KlineInterval }[] = [
   { tf: 'h1', interval: '1h' },
@@ -50,7 +49,7 @@ const TF_MAP: { tf: RsiTf; interval: KlineInterval }[] = [
 const rsiKey = (symbol: string, interval: string) => `cc.quotes.cache:rsi2:${symbol}:${interval}`;
 
 function snapOfTf(kl: Candle[] | null): { rsi: number | null; avg: number | null } {
-  if (!kl || kl.length < 30) return { rsi: null, avg: null };
+  if (!kl || kl.length < RSI_MIN_BARS) return { rsi: null, avg: null };
   try {
     return rsiWithAvg(kl);
   } catch {
@@ -72,44 +71,20 @@ export interface RsiTableResult {
   binanceOk: boolean;
 }
 
-/** Fallback 100% CoinGecko: 1d do diário, 1s do diário reamostrado, 1h/4h do horário. */
-async function fallbackSnaps(id: string): Promise<Partial<Record<RsiTf, Candle[]>>> {
-  const out: Partial<Record<RsiTf, Candle[]>> = {};
-  try {
-    const daily = await coinHistory(id);
-    const d1 = closesToCandles(daily);
-    if (d1) {
-      out.d1 = d1;
-      const w1 = closesToCandles(sampleEvery(daily, 7));
-      if (w1) out.w1 = w1;
-    }
-  } catch {
-    /* sem diário */
-  }
-  try {
-    const hourly = await coinHistoryHours(id);
-    const h1 = closesToCandles(hourly.slice(-90));
-    if (h1) {
-      out.h1 = h1;
-      const h4 = closesToCandles(sampleEvery(hourly, 4));
-      if (h4) out.h4 = h4;
-    }
-  } catch {
-    /* sem horário: 1h/4h ficam "—" */
-  }
-  return out;
-}
-
 export interface RsiItem {
   symbol: string;
   id: string;
-  /** Fechamentos horários (sparkline): h1/h4 calculados localmente, sem fetch. */
+  /** Legado (sparkline): RSI agora exige OHLC real — campo mantido p/ compatibilidade, ignorado. */
   hourly?: number[];
 }
 
+/** Limite de candles buscados por TF (warmup de Wilder + AVG). */
+const REAL_LIMIT: Record<RsiTf, number> = { h1: 220, h4: 220, d1: 300, w1: 150 };
+
 /**
- * RSI(14)+AVG em 1h/4h/1d/1s: IDB → multi-fonte (Binance→Kraken→Coinbase) →
- * fallback CoinGecko total. `onProgress` recebe cada moeda pronta.
+ * RSI(14)+AVG em 1h/4h/1d/1s: SOMENTE OHLC real de exchange (paridade
+ * TradingView) com warmup de 100 barras. Sem dado real: "—" (indisponível),
+ * nunca aproximado do sparkline. `onProgress` recebe cada moeda pronta.
  */
 export async function ensureRsiTable(
   items: RsiItem[],
@@ -128,47 +103,13 @@ export async function ensureRsiTable(
     const batch = await Promise.all(
       queue.slice(i, i + 12).map(async (it): Promise<[string, RsiSnap]> => {
         const klByTf = new Map<RsiTf, Candle[]>();
-        // Horário local primeiro (sparkline do universo: zero fetch p/ 1h/4h)
-        const hourly = (it.hourly ?? []).filter((v) => v > 0);
-        if (hourly.length >= 30) {
-          const h1 = closesToCandles(hourly.slice(-90));
-          if (h1) {
-            klByTf.set('h1', h1);
-            const h4 = closesToCandles(sampleEvery(hourly, 4));
-            if (h4) klByTf.set('h4', h4);
-          }
-        }
+        // OHLC real por TF (IDB real → multi-fonte); ausente = indisponível.
         await Promise.all(
           TF_MAP.map(async ({ tf, interval }) => {
-            try {
-              const hit = await idbGet<Candle[]>(rsiKey(it.symbol, interval));
-              if (hit && !hit.stale && hit.data.length >= 30) klByTf.set(tf, hit.data);
-            } catch {
-              /* segue para rede */
-            }
+            const kl = await getRealKlines(it.symbol, interval, RSI_MIN_BARS, REAL_LIMIT[tf]);
+            if (kl) klByTf.set(tf, kl);
           }),
         );
-        // Multi-fonte (Binance→Kraken→Coinbase, com cooldown compartilhado); CoinGecko abaixo
-        await Promise.all(
-          TF_MAP.filter(({ tf }) => !klByTf.has(tf)).map(async ({ tf, interval }) => {
-              const kl = (await multiKlines(it.symbol, interval, KLINES_LIMIT, 30))?.klines ?? null;
-            if (kl) {
-              klByTf.set(tf, kl);
-              await idbSet(rsiKey(it.symbol, interval), kl, TTL);
-            }
-          }),
-        );
-        const missing = TF_MAP.some(({ tf }) => !klByTf.has(tf));
-        if (missing) {
-          const fb = await fallbackSnaps(it.id);
-          for (const { tf, interval } of TF_MAP) {
-            const kl = fb[tf];
-            if (kl && !klByTf.has(tf)) {
-              klByTf.set(tf, kl);
-              await idbSet(rsiKey(it.symbol, interval), kl, TTL);
-            }
-          }
-        }
         const h1 = snapOfTf(klByTf.get('h1') ?? null);
         const h4 = snapOfTf(klByTf.get('h4') ?? null);
         const d1 = snapOfTf(klByTf.get('d1') ?? null);

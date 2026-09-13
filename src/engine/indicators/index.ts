@@ -21,6 +21,12 @@ export function calcSMA(values: number[], period: number): (number | undefined)[
 export function calcEMA(values: number[], period: number): number[] {
   return EMA.calculate({ period, values });
 }
+/**
+ * Barras mínimas para um RSI confiável (paridade TradingView): o alisamento
+ * de Wilder só converge com histórico longo — 30–60 candles deslocam o valor
+ * (caso real: 29,97 vs 39,78 no TV). Abaixo disso, exibir "indisponível".
+ */
+export const RSI_MIN_BARS = 100;
 export function calcRSI(candles: Candle[], period = 14): number | null {
   const v = closes(candles);
   if (v.length < period + 1 || !tailFinite(v, period + 1)) return null;

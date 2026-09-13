@@ -92,25 +92,25 @@ describe('monitor', () => {
   });
   it('plano de dados: só busca o que os filtros exigem', () => {
     // Padrões: médias (golden/death) + diário + sem semanal + range 4h/1d (super/stoch)
-    expect(planMonitorData(PRESET_FILTERS)).toEqual({ daily: 'ma', weekly: false, rangeTf: ['1d', '4h'] });
-    // Só tendência/4h: nada de rede, nada de range
+    expect(planMonitorData(PRESET_FILTERS)).toEqual({ daily: 'ma', weekly: false, rangeTf: ['1d', '4h'], rsiTf: ['4h', '1d'] });
+    // Só tendência/4h: nada de rede, nada de range — mas RSI 4h exige real
     expect(planMonitorData([{
       id: 't', name: 'T', icon: '', color: 'blue',
       conditions: [
         { indicator: 'trend', tf: '1d', field: 'curto', op: 'gte', value: 3 },
         { indicator: 'rsi', tf: '4h', field: 'value', op: 'lte', value: 30 },
       ],
-    }])).toEqual({ daily: 'none', weekly: false, rangeTf: [] });
-    // RSI diário sem médias: diário leve, sem range
+    }])).toEqual({ daily: 'none', weekly: false, rangeTf: [], rsiTf: ['4h'] });
+    // RSI diário sem médias: diário leve, sem range, real para o RSI
     expect(planMonitorData([{
       id: 'r', name: 'R', icon: '', color: 'blue',
       conditions: [{ indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 }],
-    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: [] });
-    // Condição semanal liga o fetch 1s
+    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: [], rsiTf: ['1d'] });
+    // Condição semanal liga o fetch 1s + real para o RSI
     expect(planMonitorData([{
       id: 'w', name: 'W', icon: '', color: 'blue',
       conditions: [{ indicator: 'rsi', tf: '1w', field: 'value', op: 'gte', value: 70 }],
-    }])).toEqual({ daily: 'none', weekly: true, rangeTf: [] });
+    }])).toEqual({ daily: 'none', weekly: true, rangeTf: [], rsiTf: ['1w'] });
   });
   it('S/R: aproximando da resistência e rompimento', () => {
     // 30 dias subindo 0.3 + pullback leve de 1%: a 3-4% da máxima de 20
@@ -167,11 +167,11 @@ describe('monitor', () => {
     expect(planMonitorData([{
       id: 's', name: 'S', icon: '', color: 'blue',
       conditions: [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 5 }],
-    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: [] });
+    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: [], rsiTf: [] });
     expect(planMonitorData([{
       id: 's', name: 'S', icon: '', color: 'blue',
       conditions: [{ indicator: 'sr', tf: '4h', field: 'distRes', op: 'lte', value: 5 }],
-    }])).toEqual({ daily: 'none', weekly: false, rangeTf: [] });
+    }])).toEqual({ daily: 'none', weekly: false, rangeTf: [], rsiTf: [] });
   });
   it('terminologia: EMA9/26 não se chama Golden/Death Cross (regressão P16)', () => {
     const gc = PRESET_FILTERS.find((x) => x.id === 'golden-cross')!;
@@ -303,5 +303,15 @@ describe('buildMonData com range real × sintético', () => {
     });
     expect(d.super['1d']).toBe('BULLISH');
     expect(d.stochK['4h']).not.toBeNull();
+  });
+  it('warmup Wilder: RSI nulo com 60 barras, presente com 150', () => {
+    const short = buildMonData(c, {
+      '1h': null, '4h': synth(60, 0.2, 100, 4 * 3600000), '1d': null, '1w': null,
+    }, {});
+    expect(short.rsi['4h']).toBeNull();
+    const full = buildMonData(c, {
+      '1h': null, '4h': synth(150, 0.2, 100, 4 * 3600000), '1d': null, '1w': null,
+    }, {});
+    expect(full.rsi['4h']).not.toBeNull();
   });
 });

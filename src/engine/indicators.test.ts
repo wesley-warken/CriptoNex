@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calcRSI, calcMACD, calcStoch, calcBB, calcADX, calcATR,
-  calcSupertrend, snapshot, detectDivergence,
+  calcSupertrend, rsiWithAvg, snapshot, detectDivergence,
 } from './indicators';
 import type { Candle } from '@/types';
 
@@ -125,5 +125,36 @@ describe('detectDivergence — índices na janela correta', () => {
     expect(d.bullish).toBe(false);
     expect(d.bearish).toBe(false);
     expect(d.confidence).toBe(0);
+  });
+});
+
+describe('RSI paridade TradingView (Wilder ta.rma)', () => {
+  // Série determinística 200 pontos, sempre > 0 (warmup suficiente p/ convergir).
+  const closes = Array.from({ length: 200 }, (_, i) => 100 + i * 0.15 + Math.sin(i / 5) * 4 + (i % 7) * 0.3);
+  const candles = closes.map((c, i) => ({ time: i * 3600000, open: c, high: c * 1.001, low: c * 0.999, close: c, volume: 1000 }));
+  // Wilder RMA manual — mesma matemática do ta.rma do Pine (seed SMA + alpha 1/14).
+  const wilderRSI = (xs: number[], period = 14): number => {
+    const ch = xs.slice(1).map((c, i) => c - xs[i]);
+    let up = ch.slice(0, period).filter((x) => x > 0).reduce((a, b) => a + b, 0) / period;
+    let dn = -ch.slice(0, period).filter((x) => x < 0).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < ch.length; i++) {
+      up = (up * (period - 1) + Math.max(ch[i], 0)) / period;
+      dn = (dn * (period - 1) + Math.max(-ch[i], 0)) / period;
+    }
+    if (dn === 0) return 100;
+    if (up === 0) return 0;
+    return 100 - 100 / (1 + up / dn);
+  };
+  it('calcRSI equivale ao Wilder manual nos mesmos closes', () => {
+    // Tolerância 0,01: a lib arredonda cada passo p/ 2 casas (toFixed(2)),
+    // o TV também exibe 2 casas. O bug real era de DADO (10 pontos), não de fórmula.
+    expect(Math.abs((calcRSI(candles) ?? NaN) - wilderRSI(closes))).toBeLessThan(0.01);
+  });
+  it('rsiWithAvg equivale à média dos últimos 14 RSIs manuais', () => {
+    const got = rsiWithAvg(candles);
+    const last14 = Array.from({ length: 14 }, (_, j) => wilderRSI(closes.slice(0, closes.length - 13 + j)));
+    const expected = last14.reduce((a, b) => a + b, 0) / 14;
+    expect(got.rsi).not.toBeNull();
+    expect(Math.abs((got.avg ?? NaN) - expected)).toBeLessThan(0.01);
   });
 });
