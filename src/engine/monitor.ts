@@ -613,7 +613,8 @@ export function diffEdgeEvents(
 }
 
 const MON_ACTIVE_KEY = 'cc.monitor.active';
-const MON_EVENTS_KEY = 'cc.monitor.events';
+/** Chave do feed de bordas (usada pelo event bus inter-abas). */
+export const MON_EVENTS_KEY = 'cc.monitor.events';
 
 /** Conjunto ativo persistido (sobrevive ao reload: ativo antes ≠ novo alerta). */
 export function loadMonActive(): Record<string, true> {

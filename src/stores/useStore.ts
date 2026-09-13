@@ -64,6 +64,8 @@ interface SettingsState {
   alerts: PriceAlert[];
   monFilters: MonFilter[];
   monDisabled: string[];
+  /** Top N do Monitor/Vigia (compartilhado): 100|200|300|null(Todas). */
+  radarTopN: number | null;
   tierSeen: Record<string, TierSeenEntry>;
   lastVisitOpp: number;
   pendingOp: PendingOp | null;
@@ -92,6 +94,7 @@ interface SettingsState {
   addMonFilter: (f: MonFilter) => void;
   removeMonFilter: (id: string) => void;
   toggleMonFilter: (id: string) => void;
+  setRadarTopN: (v: number | null) => void;
   markTriggered: (id: string) => void;
   noteTiers: (entries: { symbol: string; tier: Conviction; price?: number | null }[]) => void;
   setLastVisitOpp: (ts: number) => void;
@@ -124,6 +127,7 @@ export const useStore = create<SettingsState>()(
       alerts: [],
       monFilters: [],
       monDisabled: [],
+      radarTopN: 100,
       tierSeen: {},
       lastVisitOpp: 0,
       pendingOp: null,
@@ -155,6 +159,7 @@ export const useStore = create<SettingsState>()(
       addMonFilter: (f) => set({ monFilters: [...get().monFilters, f] }),
       removeMonFilter: (id) => set({ monFilters: get().monFilters.filter((x) => x.id !== id), monDisabled: get().monDisabled.filter((x) => x !== id) }),
       toggleMonFilter: (id) => set({ monDisabled: get().monDisabled.includes(id) ? get().monDisabled.filter((x) => x !== id) : [...get().monDisabled, id] }),
+      setRadarTopN: (v) => set({ radarTopN: v }),
       markTriggered: (id) => set({ alerts: get().alerts.map((x) => (x.id === id ? { ...x, triggeredAt: new Date().toISOString(), active: false } : x)) }),
       noteTiers: (entries) => {
         if (!entries.length) return;
@@ -186,14 +191,14 @@ export const useStore = create<SettingsState>()(
       setLastVisitOpp: (ts) => set({ lastVisitOpp: ts }),
       setPendingOp: (p) => set({ pendingOp: p }),
       setTierGates: (g) => set({ tierGates: g }),
-      exportAll: () => JSON.stringify({ app: 'pulso-mercado', v: 7, exportedAt: new Date().toISOString(), settings: { name: get().name, currency: get().currency, refreshSec: get().refreshSec, theme: get().theme, segment: get().segment, portfolioMethod: get().portfolioMethod, brapiToken: get().brapiToken, muted: get().muted }, favorites: get().favorites, watchlist: get().watchlist, positions: get().positions, operations: get().operations, wallets: get().wallets, sectors: get().sectors, customAssets: get().customAssets, alerts: get().alerts, customScans: get().customScans, monFilters: get().monFilters, monDisabled: get().monDisabled, tierSeen: get().tierSeen, tierGates: get().tierGates }, null, 2),
+      exportAll: () => JSON.stringify({ app: 'pulso-mercado', v: 7, exportedAt: new Date().toISOString(), settings: { name: get().name, currency: get().currency, refreshSec: get().refreshSec, theme: get().theme, segment: get().segment, portfolioMethod: get().portfolioMethod, brapiToken: get().brapiToken, muted: get().muted, radarTopN: get().radarTopN }, favorites: get().favorites, watchlist: get().watchlist, positions: get().positions, operations: get().operations, wallets: get().wallets, sectors: get().sectors, customAssets: get().customAssets, alerts: get().alerts, customScans: get().customScans, monFilters: get().monFilters, monDisabled: get().monDisabled, tierSeen: get().tierSeen, tierGates: get().tierGates }, null, 2),
       importAll: (json) => {
         const d = JSON.parse(json) as { settings?: Partial<SettingsState> & { portfolioMethod?: PortfolioMethod }; favorites?: string[]; watchlist?: string[]; positions?: PortfolioPosition[]; operations?: Operation[]; wallets?: Wallet[]; sectors?: Record<string, string>; customAssets?: StockEntry[]; alerts?: PriceAlert[]; customScans?: CustomScan[]; monFilters?: MonFilter[]; monDisabled?: string[]; tierSeen?: Record<string, TierSeenEntry>; tierGates?: TierGatesState };
         if (!d || typeof d !== 'object') throw new Error('Arquivo inválido');
         const migratedOps: Operation[] = d.operations ?? (d.positions ?? []).map((p) => ({ id: p.id, walletId: 'main', kind: p.kind, symbol: p.symbol, side: 'buy' as const, quantity: p.quantity, price: p.avgPrice, date: p.date, note: p.note }));
         set({ ...(d.settings ?? {}), portfolioMethod: d.settings?.portfolioMethod ?? get().portfolioMethod, favorites: d.favorites ?? get().favorites, watchlist: d.watchlist ?? get().watchlist, positions: [], operations: migratedOps.length ? migratedOps : get().operations, wallets: d.wallets ?? (get().wallets.length ? get().wallets : [{ id: 'main', name: 'Principal', createdAt: new Date().toISOString() }]), sectors: d.sectors ?? get().sectors, customAssets: d.customAssets ?? get().customAssets, alerts: d.alerts ?? get().alerts, customScans: d.customScans ?? get().customScans, monFilters: d.monFilters ?? get().monFilters, monDisabled: d.monDisabled ?? get().monDisabled, tierSeen: d.tierSeen ?? get().tierSeen, tierGates: d.tierGates ?? get().tierGates });
       },
-      clearAll: () => set({ positions: [], operations: [], favorites: [], watchlist: [], sectors: {}, customAssets: [], alerts: [], customScans: [], monFilters: [], monDisabled: [], tierSeen: {}, pendingOp: null, wallets: [{ id: 'main', name: 'Principal', createdAt: new Date().toISOString() }] }),
+      clearAll: () => set({ positions: [], operations: [], favorites: [], watchlist: [], sectors: {}, customAssets: [], alerts: [], customScans: [], monFilters: [], monDisabled: [], radarTopN: 100, tierSeen: {}, pendingOp: null, wallets: [{ id: 'main', name: 'Principal', createdAt: new Date().toISOString() }] }),
     }),
     {
       name: 'cc.user',
@@ -202,6 +207,7 @@ export const useStore = create<SettingsState>()(
         const s = (persisted ?? {}) as Record<string, unknown>;
         if (!Array.isArray(s.monFilters)) s.monFilters = [];
         if (!Array.isArray(s.monDisabled)) s.monDisabled = [];
+        if (s.radarTopN !== null && s.radarTopN !== 100 && s.radarTopN !== 200 && s.radarTopN !== 300) s.radarTopN = 100;
         if (typeof s.tierSeen !== 'object' || s.tierSeen === null) s.tierSeen = {};
         if (typeof s.lastVisitOpp !== 'number') s.lastVisitOpp = 0;
         if (!('pendingOp' in s)) s.pendingOp = null;

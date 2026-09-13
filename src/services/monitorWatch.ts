@@ -8,13 +8,47 @@ import { useStore } from '@/stores/useStore';
 import { useUniverseCrypto } from '@/services/universeHooks';
 import {
   buildMonData, diffEdgeEvents, evalFilterState, loadMonActive, loadMonEvents,
-  planMonitorData, saveMonActive, saveMonEvents, validateFilter, PRESET_FILTERS,
+  planMonitorData, saveMonActive, saveMonEvents, selectTopByMcap, validateFilter, PRESET_FILTERS,
+  MON_EVENTS_KEY,
   type MonData, type MonEdgeState,
 } from '@/engine/monitor';
 import { fetchMonCoinKlines } from '@/services/monitorData';
 
+/** Canal do event bus Monitor→Radar (mesma aba). */
+export const MON_EVENTS_CHANNEL = 'mon-events-updated';
+
+/** Avisa o Radar aberto que há bordas novas (sem polling). */
+export function emitMonEventsUpdated(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(MON_EVENTS_CHANNEL));
+  } catch {
+    /* sem DOM */
+  }
+}
+
+/**
+ * Assina bordas novas: CustomEvent (mesma aba) + storage (outras abas).
+ * Seguro em ambiente sem DOM (testes node): retorna no-op.
+ */
+export function subscribeMonEvents(cb: () => void): () => void {
+  try {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return () => {};
+    const onCustom = (): void => cb();
+    const onStorage = (e: StorageEvent): void => {
+      if (e.key === MON_EVENTS_KEY) cb();
+    };
+    window.addEventListener(MON_EVENTS_CHANNEL, onCustom);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(MON_EVENTS_CHANNEL, onCustom);
+      window.removeEventListener('storage', onStorage);
+    };
+  } catch {
+    return () => {};
+  }
+}
+
 const WATCH_MS = 5 * 60 * 1000;
-const WATCH_TOP = 100;
 const FIRST_DELAY_MS = 45_000;
 
 export function notifyMatch(filterName: string, icon: string, symbol: string): void {
@@ -32,15 +66,16 @@ export function useMonitorWatch(): { lastRun: number | null } {
   const coins = useUniverseCrypto().coins;
   const monFilters = useStore((s) => s.monFilters);
   const monDisabled = useStore((s) => s.monDisabled);
+  const radarTopN = useStore((s) => s.radarTopN);
   const running = useRef(false);
-  const stateRef = useRef({ coins, monFilters, monDisabled });
-  stateRef.current = { coins, monFilters, monDisabled };
+  const stateRef = useRef({ coins, monFilters, monDisabled, radarTopN });
+  stateRef.current = { coins, monFilters, monDisabled, radarTopN };
 
   useEffect(() => {
     let alive = true;
     const run = async () => {
       if (running.current) return;
-      const { coins: cs, monFilters: customs, monDisabled: dis } = stateRef.current;
+      const { coins: cs, monFilters: customs, monDisabled: dis, radarTopN: topN } = stateRef.current;
       if (!cs.length) return;
       // Filtros inválidos (combinação impossível) nunca avaliam — e nunca
       // somem em silêncio: a UI os marca como incompatíveis.
@@ -51,10 +86,8 @@ export function useMonitorWatch(): { lastRun: number | null } {
       running.current = true;
       try {
         const plan = planMonitorData(active);
-        const top = [...cs]
-          .filter((c) => (c.marketCap ?? 0) > 0)
-          .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
-          .slice(0, WATCH_TOP);
+        // Mesmo universo do Radar: Top N por market cap (nunca Top 100 fixo).
+        const top = selectTopByMcap(cs, topN, topN ?? 300);
         const states: { key: string; filterId: string; symbol: string; state: MonEdgeState }[] = [];
         const data: MonData[] = [];
         for (let i = 0; i < top.length; i += 8) {
@@ -83,6 +116,8 @@ export function useMonitorWatch(): { lastRun: number | null } {
         if (changed) {
           saveMonActive(next);
           saveMonEvents([...events, ...loadMonEvents()]);
+          // Empurra para o Radar aberto: sem polling, sem refresh manual.
+          emitMonEventsUpdated();
         }
         if (!alive) return;
         const byId = new Map(active.map((f) => [f.id, f]));

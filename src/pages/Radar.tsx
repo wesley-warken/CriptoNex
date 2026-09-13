@@ -33,6 +33,7 @@ import {
   type MonFilter, type MonIndicator, type MonOp, type MonTf,
 } from '@/engine/monitor';
 import { fetchMonCoinKlines } from '@/services/monitorData';
+import { subscribeMonEvents } from '@/services/monitorWatch';
 
 type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR' | 'PAT';
 type SortKey = 'marketCap' | 'symbol' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
@@ -177,7 +178,9 @@ export function Radar() {
   const [showAll, setShowAll] = useState(false);
   const [sort, setSort] = useState<{ k: SortKey; d: 1 | -1 }>({ k: 'marketCap', d: -1 });
   const [count, setCount] = useState(500);
-  const [topN, setTopN] = useState<number | null>(100);
+  /** Top N compartilhado com a vigia (store persistido): mesmo universo nos dois. */
+  const topN = useStore((s) => s.radarTopN);
+  const setTopN = useStore((s) => s.setRadarTopN);
   /** Nº de moedas buscadas nas abas com klines; "Todas" = 300 (limite do fetch). */
   const fetchN = topN ?? 300;
   /** Ids do pelotão Top N por market cap (memoizado: não reconstrói a cada tick de progresso). */
@@ -590,6 +593,16 @@ export function Radar() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, monRefresh, activeMonFilters, fetchN, monUniverse]);
+
+  // Tempo real de verdade: a vigia empurra bordas (mesma aba via CustomEvent,
+  // outras abas via storage) — o feed atualiza sem refresh manual.
+  useEffect(() => {
+    if (tab !== 'MON') return;
+    return subscribeMonEvents(() => {
+      setMonEvents(loadMonEvents().slice(0, 200));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   // Supertrend: 1h/4h do sparkline (instantâneo) + 1d/1s da rede
   useEffect(() => {
