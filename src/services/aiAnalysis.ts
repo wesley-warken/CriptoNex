@@ -386,8 +386,9 @@ const bSigned = (v: number | null, d = 1): string =>
 const bGap = (g: number | null): string => (g == null ? '' : `, gap ${bSigned(g)}%`);
 
 /**
- * Prompt do brief: carrega SOMENTE os números fornecidos e impõe formato,
- * tamanho (150–250 palavras), tom (dados, sem hype, sem recomendação).
+ * Prompt do brief (especificação do usuário): carrega SOMENTE os números
+ * fornecidos e impõe interpretação honesta (DADO vs SINAL vs CONTEXTO,
+ * N/A nunca vira zero nem conclusão), 150–250 palavras, 5 seções ancoradas.
  */
 export function buildMorningBriefPrompt(i: MorningBriefInput): string {
   const sectors = [
@@ -397,20 +398,42 @@ export function buildMorningBriefPrompt(i: MorningBriefInput): string {
   const news = i.news.map((x) => `“${x.title}” (${x.source})`).join(' | ') || 'N/A';
   const elites = i.elites.map((e) => `${e.symbol} score ${e.score} R:R ${e.rr ?? 'N/A'}`).join(' · ') || 'nenhum Elite 80+';
   return [
-    `ABERTURA US ${i.dateBrt} — S&P 500 ${bNum(i.spx.price)} (${bSigned(i.spx.chg)}%${bGap(i.spx.gap)}) · Nasdaq 100 ${bNum(i.ndx.price)} (${bSigned(i.ndx.chg)}%${bGap(i.ndx.gap)}) · Dow ${bNum(i.dji.price)} (${bSigned(i.dji.chg)}%${bGap(i.dji.gap)}).`,
-    `VOL: VIX ${bNum(i.vix.level)} (${bSigned(i.vix.chg)}%) · DXY em ${i.dxy.dir ?? 'N/A'} (${bSigned(i.dxy.chg)}%).`,
-    `CRIPTO: BTC ${bNum(i.btc.price)} (${bSigned(i.btc.chg24)}% 24h) · ETH ${bNum(i.eth.price)} (${bSigned(i.eth.chg24)}% 24h) · 48h: S&P ${bSigned(i.btcCorr48.spx48)}% vs BTC ${bSigned(i.btcCorr48.btc48)}% → ${i.btcCorr48.mode ?? 'N/A'}.`,
-    `REGIME: ${i.regime} · amplitude ${i.breadth ?? 'N/A'}. SETORES: ${sectors}. NOTÍCIAS 12h: ${news}. ELITES 1–3m: ${elites}. DIVERGÊNCIAS: ${i.flags.join(' | ') || 'nenhuma'}.`,
-    'Escreva o Morning Brief em português do Brasil, 150 a 250 palavras, Markdown com as seções nesta ordem: 🎯 frase de abertura (1 linha: regime + S&P% + setor líder), 📊 macro em 3 bullets (causa do sentimento, eventos 24h, fora-do-padrão), 🎨 correlação crypto (segue ou desacoplado + implicação), 🎯 ação concreta (máx 2 bullets: priorizar e evitar), ⚠️ alertas de risco (SÓ se houver divergência; sem divergência escreva "Sem alertas além do monitoramento padrão").',
-  'Tom direto e técnico, sem hype: nunca usar incrível, espetacular, extraordinário, imperdível, disparada, garantido. Use dados, não opiniões. Nunca recomendar comprar, vender ou manter.',
-    'Responda com AS e SÓ AS 5 seções abaixo, uma por parágrafo (cada bloco inicia com a âncora exata):',
-    '🎯 <frase de abertura 1 linha>',
-    '📊 <macro 3 bullets: causa | eventos 24h | alerta>',
-    '🎨 <correlação 48h + implicação>',
-    '🎯 <priorizar> <evitar>',
-    '⚠️ <alerta ou Sem alertas além do monitoramento padrão>',
-    'NUNCA resuma tudo em 1 linha; NUNCA omita uma seção.',
-    'OBRIGATÓRIO: no mínimo 150 palavras no total — resposta curta será descartada automaticamente. Mesmo que algum dado esteja N/A (dia sem pregão, feed fora), preencha as 5 seções com o contexto disponível, sem inventar números.',
+    `ABERTURA US — ${i.dateBrt} · S&P 500 ${bNum(i.spx.price)} (${bSigned(i.spx.chg)}%) · Nasdaq 100 ${bNum(i.ndx.price)} (${bSigned(i.ndx.chg)}%) · Dow Jones ${bNum(i.dji.price)} (${bSigned(i.dji.chg)}%).`,
+    `VOLATILIDADE: VIX ${bNum(i.vix.level)} (${bSigned(i.vix.chg)}%) · DXY ${i.dxy.dir ?? 'N/A'} (${bSigned(i.dxy.chg)}%).`,
+    `CRIPTOMOEDAS: BTC ${bNum(i.btc.price)} (${bSigned(i.btc.chg24)}% 24h) · ETH ${bNum(i.eth.price)} (${bSigned(i.eth.chg24)}% 24h).`,
+    `CORRELAÇÃO 48H: S&P 500 ${bSigned(i.btcCorr48.spx48)}% vs BTC ${bSigned(i.btcCorr48.btc48)}% → ${i.btcCorr48.mode ?? 'inconclusivo'}.`,
+    `REGIME: ${i.regime} · amplitude ${i.breadth ?? 'N/A'}.`,
+    `SETORES: ${sectors}.`,
+    `NOTÍCIAS ÚLTIMAS 12H: ${news}.`,
+    `ELITES 1–3M: ${elites}.`,
+    `DIVERGÊNCIAS: ${i.flags.join(' | ') || 'nenhuma'}.`,
+    'OBJETIVO: Gerar um Morning Brief objetivo, técnico e orientado a contexto de mercado. O texto deve interpretar os dados fornecidos, mas NUNCA criar dados que não estejam presentes.',
+    'REGRAS DE INTERPRETAÇÃO:',
+    '1. NUNCA invente, estime ou complete valores ausentes.',
+    '2. Quando um dado estiver como N/A, trate-o explicitamente como indisponível.',
+    '3. N/A NÃO significa zero, neutro, positivo ou negativo.',
+    '4. Não transforme ausência de dados em conclusão de mercado.',
+    '5. Diferencie claramente: DADO = informação observada; SINAL = relação entre dados; CONTEXTO = interpretação técnica dos sinais.',
+    '6. Uma conclusão deve ser baseada apenas em dados disponíveis.',
+    '7. Quando os dados forem insuficientes para concluir algo, diga isso explicitamente.',
+    '8. Não use linguagem promocional ou emocional.',
+    '9. Nunca recomendar comprar, vender ou manter ativos.',
+    '10. Não prever preço ou retorno futuro como fato.',
+    '11. Não afirmar causalidade quando existir apenas correlação.',
+    '12. Não chamar um movimento de "desacoplamento" sem evidência suficiente.',
+    '13. Não chamar um setor de "líder" quando não houver dados suficientes para comparar setores.',
+    '14. Divergência só deve ser mencionada como alerta quando houver divergência explicitamente identificada nos dados.',
+    '15. "Sem divergências" não significa "sem risco"; significa apenas ausência de divergências detectadas.',
+    'CLASSIFICAÇÃO DA CORRELAÇÃO CRYPTO: movimentos semelhantes no período → "segue"; movimentos claramente opostos → "desacoplado"; dados insuficientes para classificar → "inconclusivo". Não inferir correlação estatística formal apenas a partir de uma observação pontual.',
+    'ESTRUTURA OBRIGATÓRIA:',
+    '🎯 ABERTURA — 1 frase com regime + comportamento do S&P 500 + setor líder, SOMENTE se o setor líder estiver disponível.',
+    '📊 MACRO — exatamente 3 bullets: causa ou principal fator do sentimento; eventos relevantes nas próximas 24h; comportamento fora do padrão. Sem dado disponível, escrever "dados insuficientes para avaliar" em vez de inventar.',
+    '🎨 CORRELAÇÃO CRYPTO — seguindo, desacoplado ou inconclusivo + implicação operacional para monitoramento de risco; sem recomendação de compra ou venda.',
+    '🎯 AÇÃO CONCRETA — no máximo 2 bullets: Priorizar (maior atenção/monitoramento); Evitar (risco, ruído ou falta de confirmação).',
+    '⚠️ ALERTAS DE RISCO — com divergência real: descrever objetivamente a divergência e o risco; sem divergência, escrever exatamente "Sem alertas além do monitoramento padrão".',
+    'FORMATO FINAL OBRIGATÓRIO: português do Brasil, Markdown, entre 150 e 250 palavras. Responder EXCLUSIVAMENTE com estas 5 seções e nesta ordem (🎯 📊 🎨 🎯 ⚠️), cada seção em um único parágrafo/bloco visual, o primeiro caractere de cada seção exatamente a âncora.',
+    'NUNCA: omitir uma seção; condensar tudo em uma única linha; ultrapassar 250 palavras; ficar abaixo de 150 palavras; inventar valores; substituir N/A por zero; criar notícias, eventos, setores líderes ou divergências; emitir recomendação de compra, venda ou manutenção.',
+    'TRATAMENTO DE DADOS INCOMPLETOS: mesmo com múltiplos N/A, gerar as 5 seções com o contexto disponível, reduzindo a força da conclusão (ex.: "Dado insuficiente para confirmar a direção do índice."). PRIORIDADE DAS REGRAS: 1. Não inventar dados. 2. Não emitir recomendação financeira. 3. Preservar as 5 seções. 4. Diferenciar dado observado de interpretação. 5. Objetividade e precisão. 6. Respeitar 150–250 palavras.',
   ].join('\n');
 }
 
