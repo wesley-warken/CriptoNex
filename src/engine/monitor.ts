@@ -84,8 +84,8 @@ export const MON_FIELDS: Record<MonIndicator, { k: string; label: string; hint?:
     { k: 'sma50_200', label: 'SMA50 − SMA200', hint: 'diferença absoluta (>0 altista)' },
   ],
   sr: [
-    { k: 'distSup', label: 'Dist. Suporte %', hint: '% até o suporte de 20 (≤0 = perdeu o suporte)' },
-    { k: 'distRes', label: 'Dist. Resistência %', hint: '% até a resistência de 20 (≤0 = rompeu)' },
+    { k: 'distSup', label: 'Dist. Suporte %', hint: '% até o pivô de suporte (≤0 = perdeu o suporte)' },
+    { k: 'distRes', label: 'Dist. Resistência %', hint: '% até o pivô de resistência (≤0 = rompeu)' },
   ],
 };
 
@@ -183,6 +183,51 @@ const safe = <T>(fn: () => T): T | null => {
   }
 };
 
+/** Força do fractal e janela de busca dos pivôs de swing do S/R. */
+export const SR_FRACTAL_STRENGTH = 2;
+export const SR_LOOKBACK = 30;
+
+/**
+ * Pivô de fundo mais recente (fractal: mínima mais baixa que `strength`
+ * barras de cada lado) dentro das últimas `lookback` barras. Mede nível
+ * de suporte de verdade (wicks), não mínima de fechamentos. null = sem
+ * pivô confirmado (ex.: perna só de alta).
+ */
+export function lastSwingLow(lows: number[], strength = SR_FRACTAL_STRENGTH, lookback = SR_LOOKBACK): number | null {
+  const clean = lows.filter((v) => v > 0);
+  const n = clean.length;
+  if (n < strength * 2 + 1) return null;
+  const from = Math.max(0, n - lookback);
+  let found: number | null = null;
+  for (let i = Math.max(from, strength); i <= n - 1 - strength; i++) {
+    let isMin = true;
+    for (let j = i - strength; j <= i + strength; j++) {
+      if (j === i) continue;
+      if (clean[j] < clean[i]) { isMin = false; break; }
+    }
+    if (isMin) found = clean[i];
+  }
+  return found;
+}
+
+/** Espelho altista: pivô de topo mais recente. */
+export function lastSwingHigh(highs: number[], strength = SR_FRACTAL_STRENGTH, lookback = SR_LOOKBACK): number | null {
+  const clean = highs.filter((v) => v > 0);
+  const n = clean.length;
+  if (n < strength * 2 + 1) return null;
+  const from = Math.max(0, n - lookback);
+  let found: number | null = null;
+  for (let i = Math.max(from, strength); i <= n - 1 - strength; i++) {
+    let isMax = true;
+    for (let j = i - strength; j <= i + strength; j++) {
+      if (j === i) continue;
+      if (clean[j] > clean[i]) { isMax = false; break; }
+    }
+    if (isMax) found = clean[i];
+  }
+  return found;
+}
+
 /**
  * Monta todos os valores avaliáveis de uma moeda a partir dos klines por tempo.
  * `kl` é a base de closes (sintético do sparkline ou real — vale para os
@@ -221,10 +266,25 @@ export function buildMonData(
   });
   const c1d = closesOf('1d');
   const att = c1d.length >= 12 ? safe(() => unusualMove(c1d)) : null;
-  // S/R: distância % ao suporte/resistência de 20 barras (excluindo a atual).
+  // S/R: distância % ao pivô de swing mais recente (wicks reais).
   // distRes ≤ 5 → aproximando-se da resistência; ≤ 0 → rompimento acima.
   // distSup ≤ 5 → aproximando-se do suporte; ≤ 0 → perda do suporte.
-  const srOf = (kl: Candle[] | null): { sup: number | null; res: number | null } => {
+  const srOf = (tf: MonTf): { sup: number | null; res: number | null } => {
+    const rk = rangeOf(tf);
+    if (rk.length >= 8) {
+      const closes = rk.map((k) => k.close).filter((v) => v > 0);
+      const last = closes[closes.length - 1];
+      if (!(last > 0)) return { sup: null, res: null };
+      const sup = lastSwingLow(rk.map((k) => k.low));
+      const res = lastSwingHigh(rk.map((k) => k.high));
+      return {
+        sup: sup == null ? null : num(((last - sup) / last) * 100),
+        res: res == null ? null : num(((res - last) / last) * 100),
+      };
+    }
+    // Legado (sem range real): min/max de closes — mantido p/ compatibilidade;
+    // chamadores novos sempre passam rangeKl (pivô acima).
+    const kl = get(tf);
     if (!kl || kl.length < 22) return { sup: null, res: null };
     const closes = kl.map((k) => k.close).filter((v) => v > 0);
     if (closes.length < 22) return { sup: null, res: null };
@@ -273,12 +333,12 @@ export function buildMonData(
     attToday: att?.todayPct ?? null,
     ma: c1d.length >= 210 ? safe(() => computeMaSet(c1d)) : null,
     srDistSup: {
-      '1h': srOf(get('1h')).sup, '4h': srOf(get('4h')).sup,
-      '1d': srOf(get('1d')).sup, '1w': srOf(get('1w')).sup,
+      '1h': srOf('1h').sup, '4h': srOf('4h').sup,
+      '1d': srOf('1d').sup, '1w': srOf('1w').sup,
     },
     srDistRes: {
-      '1h': srOf(get('1h')).res, '4h': srOf(get('4h')).res,
-      '1d': srOf(get('1d')).res, '1w': srOf(get('1w')).res,
+      '1h': srOf('1h').res, '4h': srOf('4h').res,
+      '1d': srOf('1d').res, '1w': srOf('1w').res,
     },
   };
 }
@@ -428,6 +488,8 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
       if (c.indicator === 'trend') continue;
       if (c.indicator === 'stoch' || c.indicator === 'super') range.add(c.tf);
       if (c.indicator === 'rsi') rsi.add(c.tf);
+      // S/R mede pivô nos wicks: exige OHLC real do TF (ou indisponível).
+      if (c.indicator === 'sr') range.add(c.tf);
       if (c.indicator === 'ma') needMA = true;
       else if (c.indicator === 'attention') needDaily = true;
       else if (c.indicator === 'sr' && (c.tf === '1d' || c.tf === '1w')) {
@@ -436,7 +498,7 @@ export function planMonitorData(filters: MonFilter[]): MonDataPlan {
       }
       else if (c.tf === '1w') needW = true;
       else if (c.tf === '1d') needDaily = true;
-      // 1h/4h (rsi/stoch/macd/super/sr): sparkline do universo — zero fetch
+      // 1h/4h (macd e demais close-only): sparkline do universo — zero fetch
     }
   }
   return { daily: needMA ? 'ma' : needDaily ? 'kl' : 'none', weekly: needW, rangeTf: [...range], rsiTf: [...rsi] };
@@ -478,18 +540,18 @@ export const PRESET_FILTERS: MonFilter[] = [
     [{ indicator: 'super', tf: '4h', field: 'dir', op: 'eq', value: 1 }]),
   F('stoch-sobrevendido', 'Estocástico Sobrevendido', 'eye', 'yellow', 'Estocástico rápido ≤20 no 4 horas.',
     [{ indicator: 'stoch', tf: '4h', field: 'k', op: 'lte', value: 20 }]),
-  F('prox-resistencia', 'Aproximando da Resistência', 'up-right', 'yellow', 'A até 5% da máxima de 20 no diário: teste de resistência se aproxima.',
+  F('prox-resistencia', 'Aproximando da Resistência', 'up-right', 'yellow', 'A até 5% do pivô de resistência no diário: teste de resistência se aproxima.',
     [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 5 }]),
-  F('prox-suporte', 'Aproximando do Suporte', 'trend-down', 'yellow', 'A até 5% da mínima de 20 no diário: teste de suporte se aproxima.',
+  F('prox-suporte', 'Aproximando do Suporte', 'trend-down', 'yellow', 'A até 5% do pivô de suporte no diário: teste de suporte se aproxima.',
     [{ indicator: 'sr', tf: '1d', field: 'distSup', op: 'lte', value: 5 }]),
-  F('rompimento-resistencia', 'Rompimento de Resistência', 'zap', 'green', 'Fechou acima da máxima de 20 no diário.',
+  F('rompimento-resistencia', 'Rompimento de Resistência', 'zap', 'green', 'Fechou acima do pivô de resistência no diário.',
     [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 0 }]),
-  F('sobrevendido-suporte', 'Sobrevendido no Suporte', 'gem', 'green', 'RSI diário ≤30 colado no suporte de 20 (até 2%).',
+  F('sobrevendido-suporte', 'Sobrevendido no Suporte', 'gem', 'green', 'RSI diário ≤30 colado no pivô de suporte (até 2%).',
     [
       { indicator: 'rsi', tf: '1d', field: 'value', op: 'lte', value: 30 },
       { indicator: 'sr', tf: '1d', field: 'distSup', op: 'lte', value: 2 },
     ]),
-  F('sobrecomprado-resistencia', 'Sobrecomprado na Resistência', 'flame', 'red', 'RSI diário ≥70 colado na resistência de 20 (até 2%).',
+  F('sobrecomprado-resistencia', 'Sobrecomprado na Resistência', 'flame', 'red', 'RSI diário ≥70 colado no pivô de resistência (até 2%).',
     [
       { indicator: 'rsi', tf: '1d', field: 'value', op: 'gte', value: 70 },
       { indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 2 },

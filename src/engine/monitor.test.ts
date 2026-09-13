@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildMonData, diffEdgeEvents, evalCondition, evalConditionState, evalFilter, evalFilterState,
-  planMonitorData, PRESET_FILTERS, selectTopByMcap, validateCondition,
+  lastSwingHigh, lastSwingLow, planMonitorData, PRESET_FILTERS, selectTopByMcap, validateCondition,
   validateFilter, whyFilter,
   type MonData, type MonFilter,
 } from '@/engine/monitor';
@@ -163,15 +163,15 @@ describe('monitor', () => {
     expect(whyPull).toContain('25');
     expect(whyPull).toContain('≤ 30');
   });
-  it('plano de dados: S/R diário pede klines, S/R 4h é grátis (spark)', () => {
+  it('plano de dados: S/R diário pede klines reais, S/R 4h idem', () => {
     expect(planMonitorData([{
       id: 's', name: 'S', icon: '', color: 'blue',
       conditions: [{ indicator: 'sr', tf: '1d', field: 'distRes', op: 'lte', value: 5 }],
-    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: [], rsiTf: [] });
+    }])).toEqual({ daily: 'kl', weekly: false, rangeTf: ['1d'], rsiTf: [] });
     expect(planMonitorData([{
       id: 's', name: 'S', icon: '', color: 'blue',
       conditions: [{ indicator: 'sr', tf: '4h', field: 'distRes', op: 'lte', value: 5 }],
-    }])).toEqual({ daily: 'none', weekly: false, rangeTf: [], rsiTf: [] });
+    }])).toEqual({ daily: 'none', weekly: false, rangeTf: ['4h'], rsiTf: [] });
   });
   it('terminologia: EMA9/26 não se chama Golden/Death Cross (regressão P16)', () => {
     const gc = PRESET_FILTERS.find((x) => x.id === 'golden-cross')!;
@@ -313,5 +313,41 @@ describe('buildMonData com range real × sintético', () => {
       '1h': null, '4h': synth(150, 0.2, 100, 4 * 3600000), '1d': null, '1w': null,
     }, {});
     expect(full.rsi['4h']).not.toBeNull();
+  });
+});
+
+describe('S/R por pivô de swing (wicks reais)', () => {
+  const lows = [100, 99, 98, 97, 96, 94, 96, 97, 98, 99, 100, 101];
+  const highs = [102, 101, 100, 99, 98, 96, 98, 101, 110, 108, 106, 105];
+  const closes = [101, 100, 99, 98, 97, 95, 97, 99, 104, 103.5, 103, 109];
+  it('acha o fundo e o topo fractais mais recentes', () => {
+    expect(lastSwingLow(lows)).toBe(94);
+    expect(lastSwingHigh(highs)).toBe(110);
+  });
+  it('sem fractal: null (perna só de alta/baixa)', () => {
+    expect(lastSwingLow([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])).toBeNull();
+    expect(lastSwingHigh([12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1])).toBeNull();
+    expect(lastSwingLow([1, 2, 3])).toBeNull();
+  });
+  it('buildMonData: distância até o pivô, não até mínima de closes', () => {
+    const kl = closes.map((c, i) => ({ time: i * 14400000, open: c, high: highs[i], low: lows[i], close: c, volume: 1000 }));
+    const d = buildMonData(
+      { id: 't', symbol: 'T', name: 'T', price: 109, marketCap: 1e9, volume24h: 1e6, change1h: 0, change24h: 0, change7d: 0, change30d: 0, change1y: 0 } as never,
+      { '1h': null, '4h': kl, '1d': null, '1w': null },
+      { '4h': kl },
+    );
+    // (109-94)/109 = 13,76% (mínima de closes daria ~0%).
+    expect(d.srDistSup['4h']).toBeCloseTo(13.76, 1);
+    expect(d.srDistRes['4h']).toBeCloseTo(0.92, 1);
+  });
+  it('sem range real: S/R indisponível (null), sem votar no fictício', () => {
+    const kl = closes.map((c, i) => ({ time: i * 14400000, open: c, high: c * 1.0005, low: c * 0.9995, close: c, volume: 0 }));
+    const d = buildMonData(
+      { id: 't', symbol: 'T', name: 'T', price: 109, marketCap: 1e9, volume24h: 1e6, change1h: 0, change24h: 0, change7d: 0, change30d: 0, change1y: 0 } as never,
+      { '1h': null, '4h': kl, '1d': null, '1w': null },
+      { '4h': null },
+    );
+    expect(d.srDistSup['4h']).toBeNull();
+    expect(d.srDistRes['4h']).toBeNull();
   });
 });
