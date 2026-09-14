@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   quotaDay, canSpend, hashPrompt, buildSetupPrompt, buildContextPrompt, AI_SYSTEM, AI_DAILY_CAP,
   AI_LITE_DAILY_CAP, canExplainFlash, buildMorningBriefPrompt, buildBriefTemplate, buildBriefHeadline,
-  briefOutputValid, generateBrief, BANNED_HYPE, type MorningBriefInput,
+  briefOutputValid, generateBrief, BANNED_HYPE, BRIEF_MIN_WORDS, BRIEF_MAX_WORDS,
+  analysisOutputValid, generateAnalysis, ANALYSIS_MIN_WORDS, ANALYSIS_MAX_TOKENS, type MorningBriefInput,
 } from './aiAnalysis';
+import { ANALYST_SYSTEM, buildAnalystPrompt } from './analystPrompt';
 
 describe('cota dura do plano gratuito', () => {
   it('quotaDay em YYYY-MM-DD e canSpend com virada de dia', () => {
@@ -82,12 +84,14 @@ describe('morning brief: prompt e template determinístico', () => {
   it('prompt carrega todos os números e proíbe recomendação', () => {
     const p = buildMorningBriefPrompt(briefInput);
     for (const n of ['6487.5', '1.2', '14.2', '115420', 'RISK-ON', '68', 'NVDA', '84', '2.6']) expect(p).toContain(n);
-    expect(p).toMatch(/200 palavras/);
+    expect(p).toMatch(/800 palavras/);
+    expect(p).toMatch(/8192/);
     expect(p.toLowerCase()).not.toMatch(/compre|recomendo/);
   });
-  it('prompt impõe teto de 200 palavras e N/A honesto', () => {
+  it('prompt impõe piso 800, teto 8192 e N/A honesto', () => {
     const p = buildMorningBriefPrompt(briefInput);
-    expect(p).toMatch(/no máximo 200 palavras/i);
+    expect(p).toMatch(/no mínimo 800 palavras/i);
+    expect(p).toMatch(/no máximo 8192/i);
     expect(p).toMatch(/N\/A NÃO significa zero/);
     expect(p).toMatch(/inconclusivo/);
   });
@@ -112,36 +116,61 @@ describe('morning brief: prompt e template determinístico', () => {
   });
 });
 
-describe('validador estrutural: teto 200, âncoras por parágrafo', () => {
-  const iaPtBr = [
+describe('validador estrutural: piso 800, teto 8192, 5 âncoras em ordem', () => {
+  // base curta (sem piso) — usada para compor a versão longa 800+
+  const basePtBr = [
     '🎯 Abertura em tom positivo com o S&P 500 em alta de +0,8% aos 6.487 pontos, liderado por Tech com +1,5%. Nasdaq avança +1,2% e o VIX recua para 14,2 pontos.',
     '📊 O dólar em queda de 0,2% alivia ativos de risco. O CPI de amanhã deve vir em linha e as big techs divulgam balanços na semana. Gaps positivos e VIX em queda confirmam o tom da abertura.',
     '🎨 O BTC desacoplou e opera aos 115.420 dólares com +2,1% em 24h, enquanto o S&P subiu +0,2% em 48h contra +2,0% do BTC. O ETH segue aos 4.521 dólares com +1,4%.',
     '🎯 Priorizar pullbacks em NVDA com score 84 e META com score 81 no horizonte de 1 a 3 meses. Evitar reversões de topo, pois o regime sustenta tendência.',
     '⚠️ Sem alertas além do monitoramento padrão, com amplitude em 68 indicando fundo amplo e saudável.',
   ].join('\n');
-  it('aprova resposta válida com números formatados em pt-BR', () => {
+  // expande cada seção com parágrafos analíticos até bater 800+ palavras (determinístico)
+  const filler = 'Análise técnica detalhada com contexto macro, leitura de fluxo, níveis de suporte e resistência, validação de volume e amplitude, correlação intermercados e gestão de risco. ';
+  const elongate = (s: string) => `${s}\n${filler.repeat(160)}`; // ~ 160*22 ≈ 3520 palavras; garante >800
+  const iaPtBr = elongate(basePtBr);
+  it('aprova resposta válida longa com números formatados em pt-BR', () => {
     const v = briefOutputValid(iaPtBr);
     expect(v.ok).toBe(true);
     expect(v.reason).toBeNull();
+    expect(v.words).toBeGreaterThanOrEqual(BRIEF_MIN_WORDS);
+    expect(v.words).toBeLessThanOrEqual(BRIEF_MAX_WORDS);
   });
-  it('rejeita colapso em 1 linha mesmo com as 4 âncoras', () => {
-    const umaLinha = '🎯 Abertura em alta 📊 Macro estável 🎨 Crypto segue 🎯 Priorizar tudo ⚠️ Sem alertas hoje e amanhã com bom humor';
+  it('rejeita colapso em 1 linha mesmo com as âncoras', () => {
+    const umaLinha = '🎯 Abertura em alta 📊 Macro estável 🎨 Crypto segue 🎯 Priorizar tudo ⚠️ Sem alertas hoje e amanhã com bom humor ' + filler.repeat(80);
     expect(briefOutputValid(umaLinha).ok).toBe(false);
   });
-  it('rejeita texto acima de 200 palavras', () => {
-    const longo = `${iaPtBr}\n${iaPtBr}`;
+  it('rejeita texto curto demais (<800)', () => {
+    const curto = basePtBr; // ~130 palavras
+    const v = briefOutputValid(curto);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toMatch(/mínimo.*800/);
+  });
+  it('rejeita texto acima de 8192 palavras', () => {
+    const longo = `${iaPtBr}\n${iaPtBr}\n${iaPtBr}`; // > 8192
     const v = briefOutputValid(longo);
     expect(v.ok).toBe(false);
-    expect(v.reason).toMatch(/200/);
+    expect(v.reason).toMatch(/8192/);
   });
   it('reprova colapso em 1 linha', () => {
-    const v = briefOutputValid('🎯 Alta com S&P +0,8% e VIX 14,2.');
+    const v = briefOutputValid('🎯 Alta com S&P +0,8% e VIX 14,2. ' + filler.repeat(80));
     expect(v.ok).toBe(false);
   });
   it('reprova âncora ausente', () => {
     const semAnchor = iaPtBr.replace('🎨', 'Sobre cripto:');
     expect(briefOutputValid(semAnchor).ok).toBe(false);
+  });
+  it('reprova ordem trocada e falta do segundo 🎯', () => {
+    const ordemErrada = [
+      '🎯 Abertura longa ' + filler.repeat(40),
+      '⚠️ Alerta invertido ' + filler.repeat(40),
+      '📊 Macro fora de ordem ' + filler.repeat(40),
+      '🎨 Crypto fora de ordem ' + filler.repeat(40),
+      '🎯 Ação fora de ordem ' + filler.repeat(40),
+    ].join('\n');
+    expect(briefOutputValid(ordemErrada).ok).toBe(false);
+    const soUmTarget = basePtBr.replace('🎯 Priorizar', 'Priorizar') + '\n' + filler.repeat(160);
+    expect(briefOutputValid(soUmTarget).ok).toBe(false);
   });
   it('fallback sem chave expõe o motivo no detail', async () => {
     // Chave camuflada: NO_KEY determinístico, sem rede.
@@ -152,6 +181,48 @@ describe('validador estrutural: teto 200, âncoras por parágrafo', () => {
       expect(r.text).toBe('TEMPLATE');
       expect(r.error).toBe('NO_KEY');
       expect(r.detail).toBe('NO_KEY');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe('Análise Completa: piso 800, validador e prompt', () => {
+  const filler = (n: number): string[] => Array.from({ length: n }, (_, i) => `palavra${i}`);
+  const good = [`MARKET REGIME`, ...filler(850), `CONCLUSÃO DO AI ANALYST`].join(` `);
+  it('aprova análise longa com os dois cabeçalhos e 800+', () => {
+    const v = analysisOutputValid(good);
+    expect(v.ok).toBe(true);
+    expect(v.words).toBeGreaterThanOrEqual(800);
+  });
+  it('rejeita curta (<800) e sem cabeçalhos', () => {
+    expect(analysisOutputValid(`resumo curto`).ok).toBe(false);
+    expect(analysisOutputValid(`${`MARKET REGIME`} só isso`).ok).toBe(false);
+    const noEnd = [...filler(850), `MARKET REGIME`].join(` `);
+    expect(analysisOutputValid(noEnd).ok).toBe(false);
+    const short = [`MARKET REGIME`, ...filler(200), `CONCLUSÃO DO AI ANALYST`].join(` `);
+    expect(analysisOutputValid(short).ok).toBe(false);
+  });
+  it('piso e teto publicados nas constantes (800 / 8192)', () => {
+    expect(ANALYSIS_MIN_WORDS).toBe(800);
+    expect(ANALYSIS_MAX_TOKENS).toBe(8192);
+    expect(BRIEF_MIN_WORDS).toBe(800);
+  });
+  it('prompt do analista carrega dados e impõe 800', () => {
+    const p = buildAnalystPrompt(briefInput);
+    for (const n of ['6487.5', '115420', 'RISK-ON']) expect(p).toContain(n);
+    expect(p).toMatch(/800 palavras/);
+  });
+  it('analyst system tem identidade e não inventa', () => {
+    expect(ANALYST_SYSTEM).toMatch(/FONTE DA VERDADE/);
+    expect(ANALYST_SYSTEM).toMatch(/MARKET REGIME/);
+  });
+  it('sem chave: indisponível com motivo, sem throw', async () => {
+    vi.stubEnv(`VITE_GEMINI_API_KEY`, ``);
+    try {
+      const r = await generateAnalysis(`prompt`, ANALYST_SYSTEM);
+      expect(r.tier).toBe(`unavailable`);
+      expect(r.error).toBe(`NO_KEY`);
     } finally {
       vi.unstubAllEnvs();
     }

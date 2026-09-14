@@ -203,23 +203,23 @@ async function flashUsedToday(day: string): Promise<number> {
 
 type FetchStatus = { status: 'ok'; text: string } | { status: 'quota' | 'failed' | 'notfound' };
 
-async function callModel(key: string, modelId: string, userPrompt: string): Promise<FetchStatus> {
+async function callModel(
+  key: string, modelId: string, userPrompt: string,
+  systemText: string = AI_SYSTEM, maxTokens = 8192,
+): Promise<FetchStatus> {
   let r: Response;
-  // Thinking consome o teto de maxOutputTokens junto com a resposta: com o
-  // teto de 1024, o modelo pensava ~980 tokens e entregava ~40 de texto
-  // (finish=MAX_TOKENS cortado no meio). Tarefas aqui são extrativas (todos
-  // os dados vão no prompt), então thinking desligado. Modelos lite rejeitam
-  // o campo com 400 — por isso ele só vai nos modelos sem "lite" no nome.
-  // Temperature baixa: brief é extrativo (dados já vêm no prompt), então
-  // prioriza seguir instruções (tamanho, âncoras) em vez de variar o texto.
-  const generationConfig: Record<string, unknown> = { maxOutputTokens: 1024, temperature: 0.2 };
+  // Teto 8192 para 800 palavras (~1200 tokens) com folga. Thinking já era o
+  // causador do MAX_TOKENS com 1024→980 thinking + 40 texto. Mantém
+  // thinkingBudget 0. Modelos lite rejeitam o campo com 400 — por isso só
+  // vai nos modelos sem "lite" no nome. Temperature 0.2 segue extrativo.
+  const generationConfig: Record<string, unknown> = { maxOutputTokens: maxTokens, temperature: 0.2 };
   if (!modelId.includes('lite')) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   try {
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${encodeURIComponent(key)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        system_instruction: { parts: [{ text: AI_SYSTEM }] },
+        system_instruction: { parts: [{ text: systemText }] },
         contents: [{ parts: [{ text: userPrompt }] }],
         generationConfig,
       }),
@@ -239,13 +239,20 @@ async function callModel(key: string, modelId: string, userPrompt: string): Prom
   }
 }
 
+export interface AskOpts {
+  /** System instruction (padrão: AI_SYSTEM). */
+  system?: string;
+  /** Teto de tokens de saída (padrão: 8192 para 800 palavras). */
+  maxTokens?: number;
+}
+
 /**
  * Núcleo por tier: cota própria, cache próprio (tier+modelo no hash).
  * Fallback de CONFIGURAÇÃO (não de tarefa): se o modelo Lite responder 404
  * (nome inválido), tenta 1x o modelo principal MAS cobra da cota Lite —
  * a cota nobre nunca é tocada por tarefa auxiliar.
  */
-async function askTier(userPrompt: string, tier: AiTier): Promise<AIResult> {
+async function askTier(userPrompt: string, tier: AiTier, opts?: AskOpts): Promise<AIResult> {
   const key = apiKey();
   if (!key) return { ok: false, error: 'NO_KEY' };
   const day = quotaDay();
@@ -264,9 +271,9 @@ async function askTier(userPrompt: string, tier: AiTier): Promise<AIResult> {
   } catch {
     /* sem cache: segue */
   }
-  let res = await callModel(key, modelId, userPrompt);
+  let res = await callModel(key, modelId, userPrompt, opts?.system, opts?.maxTokens);
   if (res.status === 'notfound' && tier === 'lite') {
-    res = await callModel(key, modelFor('flash'), userPrompt);
+    res = await callModel(key, modelFor('flash'), userPrompt, opts?.system, opts?.maxTokens);
     if (res.status === 'notfound') return { ok: false, error: 'FAILED' };
   }
   if (res.status === 'quota') return { ok: false, error: 'QUOTA' };
@@ -287,8 +294,8 @@ async function askTier(userPrompt: string, tier: AiTier): Promise<AIResult> {
  * Erros de rede/cota viram {ok:false} com motivo — nunca throw na UI.
  * Tier padrão 'flash' (compatível com chamadas existentes).
  */
-export async function askGemini(userPrompt: string, tier: AiTier = 'flash'): Promise<AIResult> {
-  return askTier(userPrompt, tier);
+export async function askGemini(userPrompt: string, tier: AiTier = 'flash', opts?: AskOpts): Promise<AIResult> {
+  return askTier(userPrompt, tier, opts);
 }
 
 export async function aiRemaining(): Promise<number> {
@@ -379,16 +386,17 @@ export interface MorningBriefInput {
   flags: string[];
 }
 
-const bNum = (v: number | null, d = 1): string =>
+export const bNum = (v: number | null, d = 1): string =>
   v == null || !Number.isFinite(v) ? 'N/A' : (Number.isInteger(v) ? String(v) : v.toFixed(d));
-const bSigned = (v: number | null, d = 1): string =>
+export const bSigned = (v: number | null, d = 1): string =>
   v == null || !Number.isFinite(v) ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(d)}`;
 const bGap = (g: number | null): string => (g == null ? '' : `, gap ${bSigned(g)}%`);
 
 /**
- * Prompt do brief (especificação do usuário): carrega SOMENTE os números
- * fornecidos e impõe interpretação honesta (DADO vs SINAL vs CONTEXTO,
- * N/A nunca vira zero nem conclusão), no máximo 200 palavras, 5 seções ancoradas.
+ * Prompt do brief — análise longa: carrega SOMENTE os números fornecidos
+ * e impõe interpretação honesta (DADO vs SINAL vs CONTEXTO, N/A nunca vira
+ * zero nem conclusão), no mínimo 800 palavras, teto 8192, 5 seções ancoradas.
+ * Pedido do usuário 2026-09-14: resposta longa (piso 800) para análise completa.
  */
 export function buildMorningBriefPrompt(i: MorningBriefInput): string {
   const sectors = [
@@ -431,9 +439,9 @@ export function buildMorningBriefPrompt(i: MorningBriefInput): string {
     '🎨 CORRELAÇÃO CRYPTO — seguindo, desacoplado ou inconclusivo + implicação operacional para monitoramento de risco; sem recomendação de compra ou venda.',
     '🎯 AÇÃO CONCRETA — no máximo 2 bullets: Priorizar (maior atenção/monitoramento); Evitar (risco, ruído ou falta de confirmação).',
     '⚠️ ALERTAS DE RISCO — com divergência real: descrever objetivamente a divergência e o risco; sem divergência, escrever exatamente "Sem alertas além do monitoramento padrão".',
-    'FORMATO FINAL OBRIGATÓRIO: português do Brasil, Markdown, no máximo 200 palavras (sem mínimo: o que for entregue dentro do formato está bom). Responder EXCLUSIVAMENTE com estas 5 seções e nesta ordem (🎯 📊 🎨 🎯 ⚠️), cada seção em um único parágrafo/bloco visual, o primeiro caractere de cada seção exatamente a âncora.',
-    'NUNCA: omitir uma seção; condensar tudo em uma única linha; ultrapassar 200 palavras; inventar valores; substituir N/A por zero; criar notícias, eventos, setores líderes ou divergências; emitir recomendação de compra, venda ou manutenção.',
-    'TRATAMENTO DE DADOS INCOMPLETOS: mesmo com múltiplos N/A, gerar as 5 seções com o contexto disponível, reduzindo a força da conclusão (ex.: "Dado insuficiente para confirmar a direção do índice."). PRIORIDADE DAS REGRAS: 1. Não inventar dados. 2. Não emitir recomendação financeira. 3. Preservar as 5 seções. 4. Diferenciar dado observado de interpretação. 5. Objetividade e precisão. 6. Respeitar o máximo de 200 palavras.',
+    'FORMATO FINAL OBRIGATÓRIO: português do Brasil, Markdown, no mínimo 800 palavras e no máximo 8192 palavras. Texto longo, analítico e completo — cada seção deve ser desenvolvida em múltiplos parágrafos/bullets com profundidade, não apenas 1 frase. Responder EXCLUSIVAMENTE com estas 5 seções e nesta ordem (🎯 📊 🎨 🎯 ⚠️), o primeiro caractere de cada seção exatamente a âncora.',
+    'NUNCA: omitir uma seção; condensar tudo em uma única linha; entregar menos de 800 palavras; ultrapassar 8192 palavras; inventar valores; substituir N/A por zero; criar notícias, eventos, setores líderes ou divergências; emitir recomendação de compra, venda ou manutenção.',
+    'TRATAMENTO DE DADOS INCOMPLETOS: mesmo com múltiplos N/A, gerar as 5 seções com o contexto disponível, desenvolvendo a análise com a profundidade exigida e reduzindo a força da conclusão (ex.: "Dado insuficiente para confirmar a direção do índice."). PRIORIDADE DAS REGRAS: 1. Não inventar dados. 2. Não emitir recomendação financeira. 3. Preservar as 5 seções e o piso de 800 palavras. 4. Diferenciar dado observado de interpretação. 5. Objetividade e precisão. 6. Respeitar o teto de 8192 palavras.',
   ].join('\n');
 }
 
@@ -469,10 +477,10 @@ export function buildBriefTemplate(i: MorningBriefInput): string {
 }
 
 /**
- * Validador estrutural do brief (decisão do usuário: sem piso mínimo, sem
- * checagem de números — "o que ele entregar está bom"). Exige apenas:
- * texto não-vazio, NO MÁXIMO 200 palavras e as 4 âncoras, cada uma abrindo
- * seu próprio parágrafo (isso barra o colapso em 1 linha do bug original).
+ * Validador estrutural do brief — análise longa (pedido 2026-09-14: mín 800).
+ * Exige: texto não-vazio, ENTRE 800 e 8192 palavras, e as 5 seções
+ * ancoradas (2×🎯 ABERTURA+AÇÃO, 📊, 🎨, ⚠️) cada uma abrindo parágrafo
+ * próprio em ordem. Barra colapso em 1 linha e resposta curta demais.
  */
 export interface BriefValidity {
   ok: boolean;
@@ -480,15 +488,40 @@ export interface BriefValidity {
   words: number;
 }
 
-export const BRIEF_MAX_WORDS = 200;
+export const BRIEF_MIN_WORDS = 800;
+export const BRIEF_MAX_WORDS = 8192;
 
 export function briefOutputValid(text: string | null): BriefValidity {
   if (!text || !text.trim()) return { ok: false, reason: 'texto vazio', words: 0 };
   const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words < BRIEF_MIN_WORDS) return { ok: false, reason: `texto curto demais (${words} palavras, mínimo ${BRIEF_MIN_WORDS})`, words };
   if (words > BRIEF_MAX_WORDS) return { ok: false, reason: `texto longo demais (${words} palavras, máximo ${BRIEF_MAX_WORDS})`, words };
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
-  const missing = ['🎯', '📊', '🎨', '⚠️'].filter((a) => !lines.some((l) => l.startsWith(a)));
+  // 5 seções: 2×🎯 + 📊 + 🎨 + ⚠️  em ordem — usa startsWith para lidar com surrogates e variação ⚠️
+  const anchors = lines
+    .filter((l) => l.startsWith('🎯') || l.startsWith('📊') || l.startsWith('🎨') || l.startsWith('⚠️'))
+    .map((l) => {
+      if (l.startsWith('🎯')) return '🎯' as const;
+      if (l.startsWith('📊')) return '📊' as const;
+      if (l.startsWith('🎨')) return '🎨' as const;
+      return '⚠️' as const;
+    });
+  const countTarget = anchors.filter((a) => a === '🎯').length;
+  if (countTarget < 2) return { ok: false, reason: 'seção 🎯 duplicada ausente (ABERTURA e AÇÃO são obrigatórias)', words };
+  const missing = (['📊', '🎨', '⚠️'] as const).filter((a) => !anchors.includes(a));
   if (missing.length) return { ok: false, reason: 'seção(ões) fora de parágrafo próprio ou ausente(s)', words };
+  if (anchors.length < 5) return { ok: false, reason: 'menos de 5 seções ancoradas', words };
+  // checa ordem 🎯→📊→🎨→🎯→⚠️ (primeiro 🎯, depois 📊, 🎨, segundo 🎯, ⚠️)
+  const firstTarget = anchors.indexOf('🎯');
+  const chartIdx = anchors.indexOf('📊');
+  const artIdx = anchors.indexOf('🎨');
+  const lastTarget = anchors.lastIndexOf('🎯');
+  const warnIdx = anchors.indexOf('⚠️');
+  if (!(firstTarget < chartIdx && chartIdx < artIdx && artIdx < lastTarget && lastTarget < warnIdx)) {
+    return { ok: false, reason: 'seções fora de ordem (esperado 🎯→📊→🎨→🎯→⚠️)', words };
+  }
+  // barra colapso 1-linha: precisa de pelo menos 5 linhas ancoradas distintas
+  if (lines.length < 5) return { ok: false, reason: 'colapso em poucas linhas (mínimo 5 parágrafos ancorados)', words };
   return { ok: true, reason: null, words };
 }
 
@@ -505,7 +538,7 @@ export async function generateBrief(userPrompt: string, template: string): Promi
     if (v.ok) { await markBriefDone(); return { text: first.text, tier: 'flash', badge: null, error: null, detail: null }; }
     if (!first.cached) {
       const repair = await askGemini(
-        `${userPrompt}\n\nREPARO: sua resposta anterior tinha ${v.words} palavras e falhou por: ${v.reason}. Reescreva com AS e SÓ AS 5 seções (🎯📊🎨⚠️), uma por parágrafo, usando os números do prompt.`,
+        `${userPrompt}\n\nREPARO: sua resposta anterior tinha ${v.words} palavras e falhou por: ${v.reason}. Reescreva com AS e SÓ AS 5 seções (🎯📊🎨🎯⚠️) em ordem, cada uma abrindo seu parágrafo, com no mínimo ${BRIEF_MIN_WORDS} palavras (teto ${BRIEF_MAX_WORDS}), usando os números do prompt.`,
         'flash',
       );
       const v2 = repair.ok ? briefOutputValid(repair.text) : { ok: false, reason: 'reparo falhou', words: 0 };
@@ -518,4 +551,40 @@ export async function generateBrief(userPrompt: string, template: string): Promi
   }
   await markBriefDone();
   return { text: template, tier: 'template', badge: BADGE_TEMPLATE, error: first.error, detail: first.error };
+}
+
+/** Teto da análise completa (saída longa 800 palavras). */
+export const ANALYSIS_MAX_TOKENS = 8192;
+/** Piso da análise longa: abaixo disso, curta demais — descarta. */
+export const ANALYSIS_MIN_WORDS = 800;
+
+export interface AnalysisValidity {
+  ok: boolean;
+  reason: string | null;
+  words: number;
+}
+
+/**
+ * Validador da Análise Completa: exige cabeçalhos fixos do spec
+ * (MARKET REGIME + CONCLUSÃO DO AI ANALYST) e piso de 800 palavras.
+ */
+export function analysisOutputValid(text: string | null): AnalysisValidity {
+  if (!text || !text.trim()) return { ok: false, reason: `texto vazio`, words: 0 };
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  if (words < ANALYSIS_MIN_WORDS) return { ok: false, reason: `texto curto demais (${words} palavras, mínimo ${ANALYSIS_MIN_WORDS})`, words };
+  const missing = [`MARKET REGIME`, `CONCLUSÃO DO AI ANALYST`].filter((a) => !text.includes(a));
+  if (missing.length) return { ok: false, reason: `seção(ões) ausente(s): ${missing.join(`, `)}`, words };
+  return { ok: true, reason: null, words };
+}
+
+export async function generateAnalysis(userPrompt: string, systemText: string): Promise<CascadeOut> {
+  const first = await askGemini(userPrompt, `flash`, { system: systemText, maxTokens: ANALYSIS_MAX_TOKENS });
+  if (first.ok) {
+    const v = analysisOutputValid(first.text);
+    if (v.ok) {
+      return { text: first.text, tier: `flash`, badge: null, error: null, detail: null };
+    }
+    return { text: null, tier: `unavailable`, badge: null, error: null, detail: `${v.words} palavras, ${v.reason}` };
+  }
+  return { text: null, tier: `unavailable`, badge: null, error: first.error, detail: first.error };
 }
