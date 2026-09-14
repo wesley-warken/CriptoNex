@@ -26,13 +26,16 @@ export interface HorizonFactors {
 /**
  * Score 0–100 do horizonte: soma ponderada dos fatores (pesos em
  * horizons.ts, somam 100). Ranking técnico — NÃO probabilidade.
+ * Sanitizado: qualquer NaN/Infinity vira 0 para nunca corromper o sort.
  */
 export function horizonScore(f: HorizonFactors, def = HORIZONS['4m']): number {
   const w = def.weights;
+  const safe = (v: number, fb = 0) => Number.isFinite(v) ? v : fb;
   const s =
-    f.trendW * w.trendW + f.trendD * w.trendD + f.regime * w.regime + f.rs * w.rs +
-    f.struct * w.struct + f.vol * w.vol + f.volat * w.volat + f.liq * w.liq;
-  return Math.max(0, Math.min(100, Math.round(s / 100)));
+    safe(f.trendW) * w.trendW + safe(f.trendD) * w.trendD + safe(f.regime) * w.regime + safe(f.rs) * w.rs +
+    safe(f.struct) * w.struct + safe(f.vol) * w.vol + safe(f.volat) * w.volat + safe(f.liq) * w.liq;
+  const out = Math.round(s / 100);
+  return Number.isFinite(out) ? Math.max(0, Math.min(100, out)) : 0;
 }
 
 /** Alta: mcap ≥ 1 bi + vol24h ≥ 50 mi · Média: ≥ 100 mi + ≥ 5 mi · resto: baixa. */
@@ -152,7 +155,7 @@ export function buildOpportunities(factsList: HorizonFacts[], ctx: BuildCtx): Ho
       };
     }
     return {
-      symbol: f.symbol, name: f.name, price: f.price, horizon: ctx.horizon,
+      symbol: f.symbol, name: f.name, price: f.price, marketCap: f.marketCap, volume24h: f.volume24h, horizon: ctx.horizon,
       setup: setup.kind, setupReasons: setup.reasons,
       score, confidence: f.score1d.confidence, tier,
       entryIdeal: plan?.ideal ?? null, entryLow: plan?.zoneLow ?? null, entryHigh: plan?.zoneHigh ?? null,
@@ -196,18 +199,29 @@ export const DEFAULT_FILTERS: RankFilters = {
   setup: 'all', tier: 'all', regimeFit: 'all', minRR: 0, minScore: 60, liquidity: 'all', query: '',
 };
 
-/** Filtra + ordena (score, confiança, R:R). */
+/** Filtra + ordena (score, confiança, R:R, marketCap, volume, símbolo — determinístico, sem layout shift). */
 export function rankSetups(items: HorizonOpportunity[], f: RankFilters): HorizonOpportunity[] {
   const needle = f.query.trim().toLowerCase();
+  const safeScore = (v: number) => Number.isFinite(v) ? v : 0;
+  const safeConf = (v: number) => Number.isFinite(v) ? v : 0;
+  const safeMcap = (v: number | null | undefined) => Number.isFinite(v as number) ? v as number : -Infinity;
+  const safeVol = (v: number | null | undefined) => Number.isFinite(v as number) ? v as number : -Infinity;
   return items
     .filter((o) => (f.setup === 'all' ? true : o.setup === f.setup))
     .filter((o) => (f.tier === 'all' ? true : o.tier === f.tier))
     .filter((o) => (f.regimeFit === 'all' ? true : o.regimeFit === f.regimeFit))
     .filter((o) => (f.minRR > 0 ? (o.rr1 ?? -Infinity) >= f.minRR : true))
-    .filter((o) => o.score >= f.minScore)
+    .filter((o) => safeScore(o.score) >= f.minScore)
     .filter((o) => (f.liquidity === 'all' ? true : o.liquidity === f.liquidity))
     .filter((o) => (!needle ? true : o.symbol.toLowerCase().includes(needle) || o.name.toLowerCase().includes(needle)))
-    .sort((a, b) => b.score - a.score || b.confidence - a.confidence || (b.rr1 ?? -1) - (a.rr1 ?? -1));
+    .sort((a, b) =>
+      safeScore(b.score) - safeScore(a.score)
+      || safeConf(b.confidence) - safeConf(a.confidence)
+      || (Number.isFinite(b.rr1 as number) ? b.rr1 as number : -1) - (Number.isFinite(a.rr1 as number) ? a.rr1 as number : -1)
+      || safeMcap(b.marketCap as unknown as number) - safeMcap(a.marketCap as unknown as number)
+      || safeVol(b.volume24h as unknown as number) - safeVol(a.volume24h as unknown as number)
+      || a.symbol.localeCompare(b.symbol)
+    );
 }
 
 /** Melhor por critério (ignora nulos; null sem candidato). */

@@ -81,6 +81,8 @@ export interface HorizonOpportunity {
   symbol: string;
   name: string;
   price: number;
+  marketCap?: number | null;
+  volume24h?: number | null;
   horizon: HorizonKey;
   setup: SetupKind;
   setupReasons: string[];

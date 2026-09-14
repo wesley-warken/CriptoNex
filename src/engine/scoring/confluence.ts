@@ -34,6 +34,7 @@ function dirWord(d: TrendLabel): string {
 /**
  * Aplica confluência a um score pronto: soma bônus (teto 100), anexa
  * ConfluenceData e registra o motivo em why/risks. Não re-scoring.
+ * Sanitiza NaN: base.score NaN → 0 para nunca poluir sort.
  */
 export function applyConfluence(
   base: OpportunityScore,
@@ -50,9 +51,11 @@ export function applyConfluence(
   if (agree) why.push(`✓ Confluência ${tfA}+${tfB} ${dirWord(dirA)}`);
   else if (dirA !== 'NEUTRAL' && dirB !== 'NEUTRAL' && dirA !== dirB)
     risks.push(`⚠ Divergência ${tfA} (${dirWord(dirA)}) vs ${tfB} (${dirWord(dirB)})`);
+  const safeScore = Number.isFinite(base.score) ? base.score : 0;
+  const safeBonus = Number.isFinite(bonus) ? bonus : 0;
   return {
     ...base,
-    score: Math.max(0, Math.min(100, base.score + bonus)),
+    score: Math.max(0, Math.min(100, safeScore + safeBonus)),
     confluence: conf,
     why,
     risks,

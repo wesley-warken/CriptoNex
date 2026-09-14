@@ -18,6 +18,7 @@ working/
 
 # build — nunca versionar bundle com segredos VITE_ embutidos (Google API Key, etc)
 dist/
+.agents/
 
 # chaves locais — NUNCA commitar segredos (.env.* ignorado, só o exemplo versionado)
 .env

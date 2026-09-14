@@ -9,6 +9,7 @@ import { coinHistory } from '@/services/history';
 import { yahooChart } from '@/services/lookup';
 import { fetchWithTimeout } from '@/services/cache';
 import { idbGet, idbSet, IDB_KEYS } from '@/lib/idb';
+import { normalizeTickerKey } from '@/lib/symbols';
 
 export const SCAN_TTL_MS = 6 * 60 * 60 * 1000;
 const PAIR_CONCURRENCY = 6;
@@ -192,8 +193,14 @@ class Scanner {
     this.emit();
     try {
       const pairs = await usdtPairs();
-      const withPair = queue.filter((c) => pairs.has(`${c.symbol}USDT`));
-      const withoutPair = queue.filter((c) => !pairs.has(`${c.symbol}USDT`));
+      // Normalização: WS entrega btcusdt/BTC/USDT, REST BTCUSDT — compara via normalize
+      const hasPair = (sym: string) => {
+        const key = normalizeTickerKey(`${sym}USDT`);
+        for (const p of pairs) if (normalizeTickerKey(p) === key) return true;
+        return false;
+      };
+      const withPair = queue.filter((c) => hasPair(c.symbol));
+      const withoutPair = queue.filter((c) => !hasPair(c.symbol));
       // Fase 1: pares Binance (rápido)
       this.state.phase = 'pairs';
       this.emit();
@@ -212,7 +219,9 @@ class Scanner {
         );
         for (const sc of batch) {
           if (sc) {
-            this.results.set(sc.symbol, sc);
+            const safeScore = Number.isFinite(sc.score) ? sc.score : 0;
+            const safeConf = Number.isFinite(sc.confidence) ? sc.confidence : 0;
+            this.results.set(sc.symbol, { ...sc, score: safeScore, confidence: safeConf });
             this.state.withScore = this.results.size;
           }
           this.state.scanned += 1;
@@ -238,7 +247,9 @@ class Scanner {
         );
         for (const sc of batch) {
           if (sc) {
-            this.results.set(sc.symbol, sc);
+            const safeScore = Number.isFinite(sc.score) ? sc.score : 0;
+            const safeConf = Number.isFinite(sc.confidence) ? sc.confidence : 0;
+            this.results.set(sc.symbol, { ...sc, score: safeScore, confidence: safeConf });
             this.state.withScore = this.results.size;
           }
           this.state.scanned += 1;
@@ -254,7 +265,9 @@ class Scanner {
           const closes = await coinHistory(c.id);
           const sc = scorePartial({ symbol: c.symbol, closes, btcChange7d: btc, change7d: c.change7d, provider: 'coingecko', fetchedAt: Date.now() });
           if (sc) {
-            this.results.set(sc.symbol, sc);
+            const safeScore = Number.isFinite(sc.score) ? sc.score : 0;
+            const safeConf = Number.isFinite(sc.confidence) ? sc.confidence : 0;
+            this.results.set(sc.symbol, { ...sc, score: safeScore, confidence: safeConf });
             this.state.withScore = this.results.size;
           }
         } catch {
@@ -334,7 +347,9 @@ class Scanner {
           badStreak = 0;
         }
         for (const sc of hits) {
-          this.stockResults.set(sc.symbol, sc);
+          const safeScore = Number.isFinite(sc.score) ? sc.score : 0;
+          const safeConf = Number.isFinite(sc.confidence) ? sc.confidence : 0;
+          this.stockResults.set(sc.symbol, { ...sc, score: safeScore, confidence: safeConf });
           this.stockState.withScore = this.stockResults.size;
         }
         this.stockState.scanned += queue.slice(i, i + STOCK_CONCURRENCY).length;
@@ -407,7 +422,7 @@ class Scanner {
             let asset: ResolvedAsset;
             if (kind === 'crypto') {
               const pair = `${o.symbol}USDT`;
-              if (!pairs.has(pair)) continue;
+              if (![...pairs].some((p) => normalizeTickerKey(p) === normalizeTickerKey(pair))) continue;
               asset = { symbol: o.symbol, kind: 'crypto', binanceSymbol: pair, yahooSymbol: null };
               tfA = '4h';
               tfB = '1d';

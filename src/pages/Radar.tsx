@@ -10,6 +10,7 @@ import { unusualMove } from '@/engine/attention';
 import { aggregateClosed, floorPivots, type Pivots } from '@/engine/pivots';
 import { detectPatterns, loadPatSeen, savePatSeen, type DetectedPattern, type PatternSentiment } from '@/engine/patterns';
 import { syncWedgeLog, wedgeBreakStats, type WedgeKind, type WedgeState } from '@/engine/wedges';
+import { runPatterns } from '@/services/patternsWorker';
 import { computeMaSet, ensureMaKlines, maCrossDiff, maCrossTitle, slowsFor, MA_FASTS, type MaFast, type MaKind, type MaSet } from '@/services/maTable';
 import { isActiveCoin, isStablecoin, type UniverseCoin } from '@/services/universeTypes';
 import type { Candle } from '@/types';
@@ -302,7 +303,14 @@ export function Radar() {
   const [patSort, setPatSort] = useState<{ k: 'time' | 'pattern' | 'sentiment' | 'stage'; d: 1 | -1 }>({ k: 'time', d: -1 });
   const [patFirstSeen, setPatFirstSeen] = useState<Record<string, number>>(() => loadPatSeen());
 
-  // ---- S/R (aba SR): pivôs floor semanais (5 diários fechados), mesmo motor do Monitor ----
+  // Hash por fechamento: só muda quando candle fecha (time), não a cada tick intra-bar
+  const klinesVersion = useMemo(() => {
+    let h = '';
+    for (const [s, kl] of klines) h += `${s}:${kl.length}:${(kl[kl.length - 1]?.time ?? 0)}|`;
+    return h;
+  }, [klines]);
+
+  // ---- S/R (aba SR): pivôs floor semanais (5 diários fechados), memo vinculado ao fechamento do candle ----
   const srPivots = useMemo(() => {
     const m = new Map<string, Pivots>();
     for (const [s, kl] of klines) {
@@ -314,7 +322,8 @@ export function Radar() {
       }
     }
     return m;
-  }, [klines]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [klinesVersion]);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -693,38 +702,69 @@ export function Radar() {
     return rows.slice(0, fetchN);
   }, [rows, count, tab, indTf, fetchN]);
 
-  // ---- Feed de padrões (todos os padrões por moeda + firstSeen) ----
-  const patMap = useMemo(() => {
-    if (tab !== 'PAT') return new Map<string, DetectedPattern[]>();
-    const m = new Map<string, DetectedPattern[]>();
-    for (const [s, kl] of klines) {
+  // ---- Feed de padrões: off-main-thread via Worker (padrão walkforward), vinculado ao fechamento do candle ----
+  const [patMap, setPatMap] = useState<Map<string, DetectedPattern[]>>(new Map());
+  useEffect(() => {
+    if (tab !== 'PAT') { setPatMap(new Map()); return; }
+    if (!klines.size) { setPatMap(new Map()); return; }
+    let cancelled = false;
+    const candlesObj: Record<string, import('@/types').Candle[]> = Object.fromEntries(klines);
+    let cancelWorker = () => {};
+    (async () => {
       try {
-        const found = detectPatterns(kl);
-        if (!found.length) continue;
-        // Cunhas verificadas ganham certeza medida: % histórico de rompimento
-        // a favor (só onde há selo — punhado de moedas, custo irrisório).
-        const closes = kl.map((k) => k.close);
-        m.set(s, found.map((p) => {
-          const kind: WedgeKind | null =
-            p.pattern === 'Cunha Descendente Verificada' ? 'desc'
-            : p.pattern === 'Cunha Ascendente Verificada' ? 'asc' : null;
-          if (!kind) return p;
-          try {
-            const st = wedgeBreakStats(closes, kind);
-            if (st && st.n >= 3) {
-              return { ...p, detail: `${p.detail} · histórico: ${st.n} breaks, ${st.favorPct}% a favor` };
-            }
-          } catch {
-            /* sem histórico */
-          }
-          return p;
-        }));
+        const { promise, cancel } = runPatterns(candlesObj, {}, (done, total) => {
+          if (!cancelled) setIndProg({ done, total });
+        });
+        cancelWorker = cancel;
+        const results = await promise;
+        if (cancelled) return;
+        const m = new Map<string, DetectedPattern[]>();
+        for (const [sym, list] of Object.entries(results)) {
+          if (!list.length) continue;
+          const kl = klines.get(sym);
+          const closes = kl?.map((c) => c.close) ?? [];
+          const enriched = list.map((p) => {
+            const kind: WedgeKind | null =
+              p.pattern === 'Cunha Descendente Verificada' ? 'desc'
+              : p.pattern === 'Cunha Ascendente Verificada' ? 'asc' : null;
+            if (!kind) return p;
+            try {
+              const st = wedgeBreakStats(closes, kind);
+              if (st && st.n >= 3) return { ...p, detail: `${p.detail} · histórico: ${st.n} breaks, ${st.favorPct}% a favor` };
+            } catch { /* sem histórico */ }
+            return p;
+          });
+          m.set(sym, enriched);
+        }
+        setPatMap(m);
+        setIndProg(null);
+        setIndAt(Date.now());
       } catch {
-        /* moeda sem leitura */
+        if (cancelled) return;
+        // Fallback síncrono chunked: executa em micro-batches para não congelar
+        const m = new Map<string, DetectedPattern[]>();
+        for (const [s, kl] of klines) {
+          if (cancelled) break;
+          try {
+            const found = detectPatterns(kl);
+            if (!found.length) continue;
+            const closes = kl.map((k) => k.close);
+            m.set(s, found.map((p) => {
+              const kind: WedgeKind | null =
+                p.pattern === 'Cunha Descendente Verificada' ? 'desc'
+                : p.pattern === 'Cunha Ascendente Verificada' ? 'asc' : null;
+              if (!kind) return p;
+              try { const st = wedgeBreakStats(closes, kind); if (st && st.n >= 3) return { ...p, detail: `${p.detail} · histórico: ${st.n} breaks, ${st.favorPct}% a favor` }; } catch {}
+              return p;
+            }));
+          } catch { /* moeda sem leitura */ }
+        }
+        setPatMap(m);
       }
-    }
-    return m;
-  }, [tab, klines]);
+    })();
+    return () => { cancelled = true; cancelWorker(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, klinesVersion]);
 
   useEffect(() => {
     if (tab !== 'PAT' || !patMap.size) return;
