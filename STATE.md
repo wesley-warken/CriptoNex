@@ -1,11 +1,11 @@
 # Loop State — CriptoNex
 
-Last run: 2026-09-14 — L2 Gemini 800 palavras (feat/gemini-800 0db883a): auditoria + implementação 800 mínimo, 5 âncoras, 8192 teto, surrogate fix | tsc 0, vitest 355/355
+Last run: 2026-09-14 — L2 Gemini 800 NA MAIN (73100b5): merge feat/gemini-800 0db883a + push origin main | tsc 0, vitest 355/355, build 37.7s
 
 ## High Priority (loop is acting or waiting on human)
 
-- Pedido do usuário 2026-09-14: **no mínimo 800 palavras** no Gemini — ATENDIDO em worktree isolada `cnt-gemini-800-final` (branch `feat/gemini-800`, commit 0db883a, base 92e0658). Worktree pronta para merge na main após aprovação humana — NÃO mergeado/pushed ainda (AGENTS.md: never merge/push without approval).
-- Próximo humano: revisar `git diff main..feat/gemini-800 --stat` e `git -C ../cnt-gemini-800-final log -1 --stat`, depois autorizar `git merge feat/gemini-800` + `git push origin main` se ok.
+- Pedido do usuário 2026-09-14: **no mínimo 800 palavras** no Gemini — ATENDIDO E EM PRODUÇÃO na main (73100b5, merge de 0db883a, push 92e0658..73100b5). Próximo “Gerar com IA” já gera brief longo 800+ (8192 teto). Worktree `cnt-gemini-800-final` mantida para referência.
+- Aguardando teste humano do Gemini 800 em dia útil (cota Flash 19/20). Se falhar por tamanho, detail do modal mostra `texto curto demais (X palavras, mínimo 800)` e tenta reparo 1×.
 
 ## Watch List
 
@@ -76,5 +76,6 @@ Run log:
 - 2026-09-14 | Triagem L1 report-only Gemini prompt (main 92e0658, sem edição de código): `aiAnalysis.ts` auditado — `buildMorningBriefPrompt` com 15 regras + DADO/SINAL/CONTEXTO + N/A≠zero + correlação 3ª classe ok; `callModel` com `maxOutputTokens 1024` + `temperature 0.2` + `thinkingBudget 0` (não-lite) ok; `generateBrief` com retry 1× + `markBriefDone` em todo fallback ok; `briefOutputValid` estrutural (≤200, 4 âncoras por parágrafo) ok mas conta só 1×🎯 em vez de 2× (ABERTURA+AÇÃO) e não checa ordem — watch, não bloqueia; `BANNED_HYPE` não aplicado; `DEFAULT_MODEL_LITE` pode dar 404; tsc 0, `aiAnalysis.test.ts` 18/18, vitest 347/347 (45 arq.) | L2 NÃO habilitado — nenhum fix aplicado, só relatório | SEM push/merge
 - 2026-09-14 | Pedido mín 800 palavras (L1 report-only, sem código): usuário quer resposta ≥800 palavras. Spec atual é máx 200 (decisão 2026-09-13 "o que ele entregar está bom"). Para 800 precisa L2 em worktree isolada: `BRIEF_MAX_WORDS` 200→8192, prompt "no máximo 200"→"mín 800", `maxOutputTokens` 1024→4096, `briefOutputValid` com piso 800, testes reescritos, avaliação de cota/latência/modal. Entregue abaixo análise longa de 8192 teto / 800 piso para cumprir pedido sem editar código | tsc 0, vitest 347/347 | SEM push/merge
 - 2026-09-14 | AUDITORIA Gemini (L1 em main 92e0658 → L2 em feat/gemini-800 0db883a): 8 bugs/lacunas achados — (1) maxOutputTokens 1024 corta 800 palavras em MAX_TOKENS (precisa 8192), (2) validador com l[0] quebra emojis 🎯 (surrogate pair) e valida incompleto (4 vs 5 âncoras, sem ordem), (3) BRIEF 200 contradiz 800, (4) AI_SYSTEM 120 ok para explains curtos mas brief/analyst precisam 800, (5) DEFAULT_LITE 404 com fallback extra, (6) falta parametrização callModel, (7) falta analyst 800 (não existia na main), (8) bNum/bSigned não exportados quebram analystPrompt. L2 fix: callModel parametrizável (8192, thinking 0), BRIEF_MIN 800/BRIEF_MAX 8192, prompt mín 800/teto 8192 com 5 seções expandidas, validador startsWith com 2×🎯 em ordem, ANALYSIS 8192/800 com validate+generate, analystPrompt.ts 37 seções com 800, bNum export, teste +6 (piso/teto/ordem/analyst). Fix extra: surrogate pair via startsWith | tsc 0, vitest 355/355 (45 arqs., 26 em aiAnalysis) — era 347/347 | verifier: APPROVE (tsc + 355 + diff sem segredos) | SEM merge/push (aguardando aprovação humana)
+- 2026-09-14 | MERGE + PUSH a pedido (“rode para mim”): merge feat/gemini-800 → main (73100b5, --no-ff, 3 arquivos +483/-43, analystPrompt novo) + push origin main (92e0658..73100b5) + build 37.7s + vitest 355/355 | tsc 0 | deploy na main, próximo clique já exige 800
 
 
