@@ -33,6 +33,13 @@ export function Modal({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const maxWidthClass = {
@@ -44,7 +51,7 @@ export function Modal({
   }[maxWidth];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain p-4">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
@@ -54,12 +61,12 @@ export function Modal({
       {/* Dialog Box */}
       <div
         className={cn(
-          'relative w-full rounded-[10px] border border-[var(--border-strong)] bg-[var(--surface-1)] p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150',
+          'relative flex max-h-[min(85vh,900px)] w-full flex-col overflow-hidden rounded-[10px] border border-[var(--border-strong)] bg-[var(--surface-1)] p-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150',
           maxWidthClass
         )}
       >
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border-subtle)] pb-3">
           <div>
             <h3 className="text-sm font-bold text-[var(--text-primary)]">{title}</h3>
             {subtitle && (
@@ -76,11 +83,11 @@ export function Modal({
         </div>
 
         {/* Body */}
-        <div className="py-4 text-xs text-[var(--text-secondary)]">{children}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-4 pr-1 text-xs text-[var(--text-secondary)] scrollbar-thin scrollbar-track-transparent">{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">
+          <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--border-subtle)] bg-[var(--surface-1)] pt-3">
             {footer}
           </div>
         )}

@@ -4,6 +4,7 @@
  * deslistados) continua no polling do Monitor como rede de segurança.
  */
 import type { Candle } from '@/types';
+import { normalizeTickerKey } from '@/lib/symbols';
 
 export interface LiveKline extends Candle {
   /** true quando o candle fechou */
@@ -17,6 +18,12 @@ export function mergeCandle(prev: Candle[], next: Candle): Candle[] {
   if (next.time === last.time) return [...prev.slice(0, -1), next];
   if (next.time > last.time) return [...prev, next];
   return prev;
+}
+
+/** Mesmo que mergeCandle mas com trava rígida de memória: mantém só os N mais recentes. */
+export function mergeCandleCapped(prev: Candle[], next: Candle, cap = 300): Candle[] {
+  const merged = mergeCandle(prev, next);
+  return merged.length > cap ? merged.slice(-cap) : merged;
 }
 
 const WS_TIMEOUT_MS = 10_000;
@@ -34,8 +41,11 @@ export function subscribeKline(
   let closed = false;
   let gotData = false;
   let ws: WebSocket;
+  // Normaliza par para URL e para validação (BTC/USDT → btcusdt / BTCUSDT)
+  const normalizedPair = normalizeTickerKey(pair);
+  const urlPair = normalizedPair.toLowerCase();
   try {
-    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${pair.toLowerCase()}@kline_${interval}`);
+    ws = new WebSocket(`wss://stream.binance.com:9443/ws/${urlPair}@kline_${interval}`);
   } catch {
     onStatus(false);
     return () => {};
@@ -51,7 +61,7 @@ export function subscribeKline(
         k?: { t: number; s: string; o: string; h: string; l: string; c: string; v: string; x: boolean };
       };
       const k = msg.k;
-      if (!k || k.s !== pair.toUpperCase()) return;
+      if (!k || normalizeTickerKey(k.s) !== normalizedPair) return;
       gotData = true;
       onStatus(true);
       onTick({

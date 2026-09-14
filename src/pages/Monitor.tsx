@@ -4,7 +4,7 @@ import type { Candle } from '@/types';
 import { CRYPTO_ASSETS } from '@/services/providers/assets';
 import { type BinanceInterval } from '@/services/providers/binance';
 import { fetchAssetCandles, fetchMtfCandles, mtfLabels, timeframesFor, type ResolvedAsset } from '@/services/assetCandles';
-import { mergeCandle, subscribeKline } from '@/services/liveKlines';
+import { mergeCandleCapped, subscribeKline, type LiveKline } from '@/services/liveKlines';
 import { useLookup } from '@/components/analysis/AssetSearch';
 import { snapshot, calcSupertrend } from '@/engine/indicators';
 import { floorPivots, pivotZone, aggregateClosed } from '@/engine/pivots';
@@ -117,8 +117,11 @@ export function Monitor() {
   const [retryKey, setRetryKey] = useState(0);
   // Janela de análise (300): gráfico exibe até 1000, mas score/sinais/backtest
   // rodam nos 300 recentes — O(N²) do backtest trava a página com 1000 a cada tick
+  // Cap rígido para evitar memory leak de candles em alta frequência
+  const CANDLES_CAP = 1000;
+  const ANALYSIS_CAP = 300;
   const [analysis, setAnalysis] = useState<Candle[]>([]);
-  const pushAnalysis = (kl: Candle[]) => setAnalysis(kl.length > 300 ? kl.slice(-300) : kl);
+  const pushAnalysis = (kl: Candle[]) => setAnalysis(kl.length > ANALYSIS_CAP ? kl.slice(-ANALYSIS_CAP) : kl);
   const [resolved, setResolved] = useState<ResolvedAsset | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +129,9 @@ export function Monitor() {
   const [dataSrc, setDataSrc] = useState<string | null>(null);
   const [wsLive, setWsLive] = useState(false);
   const lastTickRef = useRef(0);
+  // Gate de corrida: snapshot REST deve completar antes de aplicar deltas WS
+  const snapshotReadyRef = useRef(false);
+  const pendingTickRef = useRef<LiveKline | null>(null);
   const m = useCryptoMarket(60);
   const a = useAnalysis(m.data, m.candles);
   const cryptoMeta = CRYPTO_ASSETS.find((x) => x.symbol === symbol);
@@ -143,23 +149,35 @@ export function Monitor() {
 
   useEffect(() => {
     let alive = true;
+    snapshotReadyRef.current = false;
+    pendingTickRef.current = null;
     async function load() {
       setLoading(true); setError(null);
       try {
         const r = await fetchAssetCandles(symbol, tf);
         if (!alive) return;
         setResolved(r.asset);
-        setCandles(r.candles);
-        setDaily(r.daily);
+        // Cap rígido de histórico (prevenção de memory leak)
+        setCandles(r.candles.length > CANDLES_CAP ? r.candles.slice(-CANDLES_CAP) : r.candles);
+        setDaily(r.daily.length > CANDLES_CAP ? r.daily.slice(-CANDLES_CAP) : r.daily);
         pushAnalysis(r.candles);
         setDataSrc(r.source);
         setUpdatedAt(Date.now());
         if (r.asset.kind === 'stock' && tf === '4h') setTf('1d');
+        snapshotReadyRef.current = true;
+        // Flush: se chegou tick enquanto snapshot carregava, aplica o último (fila de 1)
+        if (pendingTickRef.current) {
+          const queued = pendingTickRef.current;
+          pendingTickRef.current = null;
+          setCandles((prev) => mergeCandleCapped(prev, queued, CANDLES_CAP));
+          setAnalysis((prev) => mergeCandleCapped(prev, queued, ANALYSIS_CAP));
+          setUpdatedAt(Date.now());
+        }
       } catch (e) { if (alive) setError(e instanceof Error ? e.message : 'Falha'); }
       finally { if (alive) setLoading(false); }
     }
     load();
-    return () => { alive = false; };
+    return () => { alive = false; snapshotReadyRef.current = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, tf, retryKey]);
 
@@ -175,10 +193,17 @@ export function Monitor() {
       tf,
       (k) => {
         if (!alive || document.hidden) return;
+        // CORRIDA DE ESTADO: se snapshot ainda não completou, enfileira o último delta (fila de 1) e descarta o resto
+        if (!snapshotReadyRef.current) {
+          pendingTickRef.current = k;
+          return;
+        }
         // Aplica no máximo 1 tick a cada 1,5s (página pesada: evita jank)
         if (Date.now() - lastTickRef.current < 1500) return;
         lastTickRef.current = Date.now();
-        setCandles((prev) => mergeCandle(prev, k));
+        // STALE CLOSURE: atualização funcional + cap rígido de memória
+        setCandles((prev) => mergeCandleCapped(prev, k, CANDLES_CAP));
+        setAnalysis((prev) => mergeCandleCapped(prev, k, ANALYSIS_CAP));
         setUpdatedAt(Date.now());
       },
       (ok) => { if (alive) setWsLive(ok); },
@@ -195,8 +220,8 @@ export function Monitor() {
       if (document.hidden) return;
       try {
         const r = await fetchAssetCandles(symbol, tf);
-        setCandles(r.candles);
-        setDaily(r.daily);
+        setCandles(r.candles.length > CANDLES_CAP ? r.candles.slice(-CANDLES_CAP) : r.candles);
+        setDaily(r.daily.length > CANDLES_CAP ? r.daily.slice(-CANDLES_CAP) : r.daily);
         pushAnalysis(r.candles);
         setUpdatedAt(Date.now());
       } catch {

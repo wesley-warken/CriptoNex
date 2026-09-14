@@ -16,6 +16,9 @@ working/
 # estado de workflow do impeccable (evidências locais de revisão)
 .impeccable/
 
+# build — nunca versionar bundle com segredos VITE_ embutidos (Google API Key, etc)
+dist/
+
 # chaves locais — NUNCA commitar segredos (.env.* ignorado, só o exemplo versionado)
 .env
 .env.*

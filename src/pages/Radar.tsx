@@ -34,6 +34,7 @@ import {
 } from '@/engine/monitor';
 import { fetchMonCoinKlines } from '@/services/monitorData';
 import { subscribeMonEvents } from '@/services/monitorWatch';
+import { normalizeTickerKey } from '@/lib/symbols';
 
 type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR' | 'PAT';
 type SortKey = 'marketCap' | 'symbol' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
@@ -259,6 +260,9 @@ export function Radar() {
   const [monExpanded, setMonExpanded] = useState(false);
   const [notifPerm, setNotifPerm] = useState(() => (typeof Notification !== 'undefined' ? Notification.permission : 'denied'));
   const [monData, setMonData] = useState<Map<string, MonData>>(new Map());
+  /** Gate de corrida: só processa eventos ao vivo depois do snapshot TopN completo. */
+  const monReadyRef = useRef(false);
+  const pendingMonEventsRef = useRef<MonEdgeEvent[]>([]);
   /** Bordas inativo→ativo (feed Realtime), persistidas; boot carrega em silêncio. */
   const [monEvents, setMonEvents] = useState<MonEdgeEvent[]>(() => loadMonEvents());
   /** Moedas avaliadas sem dados suficientes em algum filtro ativo (degradado). */
@@ -532,6 +536,8 @@ export function Radar() {
   useEffect(() => {
     if (tab !== 'MON') return;
     let alive = true;
+    monReadyRef.current = false;
+    pendingMonEventsRef.current = [];
     (async () => {
       // Sem universo válido: pausa com aviso, mantém a última análise.
       if (!monUniverse.length) {
@@ -587,9 +593,21 @@ export function Radar() {
       setMonSecs(Math.max(1, Math.round((Date.now() - t0) / 1000)));
       setIndProg(null);
       setIndAt(Date.now());
+      monReadyRef.current = true;
+      // Flush: se chegaram eventos enquanto snapshot carregava, descarrega agora
+      if (pendingMonEventsRef.current.length) {
+        const pending = pendingMonEventsRef.current;
+        pendingMonEventsRef.current = [];
+        // Merge pendentes com feed atual mantendo cap 200
+        try {
+          const mergedPending = [...pending, ...loadMonEvents()].slice(0, 200);
+          setMonEvents(mergedPending);
+        } catch { /* best-effort */ }
+      }
     })();
     return () => {
       alive = false;
+      monReadyRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, monRefresh, activeMonFilters, fetchN, monUniverse]);
@@ -598,9 +616,18 @@ export function Radar() {
   // outras abas via storage) — o feed atualiza sem refresh manual.
   useEffect(() => {
     if (tab !== 'MON') return;
-    return subscribeMonEvents(() => {
-      setMonEvents(loadMonEvents().slice(0, 200));
+    const unsub = subscribeMonEvents(() => {
+      const evs = loadMonEvents().slice(0, 200);
+      // CORRIDA DE ESTADO: se snapshot ainda não completou, enfileira o último lote e não tenta atualizar feed com monData vazio
+      if (!monReadyRef.current) {
+        pendingMonEventsRef.current = evs;
+        return;
+      }
+      // STALE CLOSURE + normalização: usa loadMonEvents() (fonte da verdade) e cap 200; atualiza funcional
+      setMonEvents(evs);
     });
+    // LIMPEZA RIGOROSA: retorna unsubscribe para evitar duplicidade ao navegar
+    return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -763,7 +790,16 @@ export function Radar() {
     const needle = q.trim().toLowerCase();
     const byId = new Map(allMonFilters.map((f) => [f.id, f]));
     const bySymbol = new Map<string, UniverseCoin>();
-    for (const c of rows) if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c);
+    const byNorm = new Map<string, UniverseCoin>();
+    for (const c of rows) {
+      if (!bySymbol.has(c.symbol)) bySymbol.set(c.symbol, c);
+      const nk = normalizeTickerKey(c.symbol);
+      if (!byNorm.has(nk)) byNorm.set(nk, c);
+    }
+    // Mapa normalizado de MonData para lookup WS/REST sem falhar por caixa ou barra
+    const monDataNorm = new Map<string, MonData>();
+    for (const [k, v] of monData) monDataNorm.set(normalizeTickerKey(k), v);
+    const favNorm = new Set(favs.map((s) => normalizeTickerKey(s)));
     const valid = new Set(activeMonFilters.filter((f) => validateFilter(f).length === 0).map((f) => f.id));
     const matchQ = (coin: UniverseCoin): boolean =>
       !needle || coin.symbol.toLowerCase().includes(needle) || coin.name.toLowerCase().includes(needle);
@@ -783,15 +819,16 @@ export function Radar() {
       for (const e of monEvents) {
         const f = byId.get(e.filterId);
         if (!f || !valid.has(f.id)) continue;
-        const coin = bySymbol.get(e.symbol);
+        const coin = byNorm.get(normalizeTickerKey(e.symbol)) ?? bySymbol.get(e.symbol);
         if (!coin || !matchQ(coin)) continue;
-        out.push({ coin, filter: f, seen: e.ts, why: whyOf(monData.get(e.symbol), f), fresh: Date.now() - e.ts < 15 * 60 * 1000 });
+        const md = monData.get(e.symbol) ?? monDataNorm.get(normalizeTickerKey(e.symbol));
+        out.push({ coin, filter: f, seen: e.ts, why: whyOf(md, f), fresh: Date.now() - e.ts < 15 * 60 * 1000 });
       }
       out.sort((a, b) => b.seen - a.seen);
     } else {
       out = [];
       for (const md of monData.values()) {
-        const coin = bySymbol.get(md.symbol);
+        const coin = byNorm.get(normalizeTickerKey(md.symbol)) ?? bySymbol.get(md.symbol);
         if (!coin || !matchQ(coin)) continue;
         for (const f of activeMonFilters) {
           if (!byId.has(f.id) || !valid.has(f.id)) continue;
@@ -803,7 +840,7 @@ export function Radar() {
       }
       out.sort((a, b) => b.seen - a.seen);
     }
-    if (monFavOnly) out = out.filter((e) => favs.includes(e.coin.symbol));
+    if (monFavOnly) out = out.filter((e) => favNorm.has(normalizeTickerKey(e.coin.symbol)));
     return out;
   }, [tab, rows, q, monData, activeMonFilters, allMonFilters, monEvents, monMode, monFavOnly, favs]);
 

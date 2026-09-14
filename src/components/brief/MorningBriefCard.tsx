@@ -3,20 +3,26 @@ import { ChevronRight, Sparkles } from 'lucide-react';
 import { Modal } from '@/components/ui/terminal-dialogs';
 import type { MorningBriefState } from './useMorningBrief';
 
-/** Render simples do brief: linhas-âncora (emoji) em destaque, resto corrido. */
+/** Render do brief: âncoras em destaque, bullets e parágrafos longos com quebra segura. */
 function BriefBody({ text }: { text: string }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {text.split('\n').filter((l) => l.trim()).map((line, i) => {
-        const head = /^[🎯📊🎨⚠️]/.test(line.trim());
+        const t = line.trim();
+        const head = /^[🎯📊🎨⚠️]/.test(t);
+        const isBullet = /^[-•]\s/.test(t) || /^\d+\.\s/.test(t);
         return (
           <p
             key={i}
-            className={head
-              ? 'text-sm font-semibold leading-6 text-[var(--text-primary)]'
-              : 'text-sm leading-6 text-[var(--text-secondary)]'}
+            className={
+              head
+                ? 'break-words text-sm font-semibold leading-6 text-[var(--text-primary)]'
+                : isBullet
+                  ? 'ml-4 break-words hyphens-auto text-sm leading-6 text-[var(--text-secondary)]'
+                  : 'break-words hyphens-auto text-sm leading-6 text-[var(--text-secondary)]'
+            }
           >
-            {line.trim()}
+            {t}
           </p>
         );
       })}
@@ -70,7 +76,7 @@ export function MorningBriefCard({ brief }: { brief: MorningBriefState }) {
         onClose={() => brief.setOpen(false)}
         title="Morning Market Brief · US Open"
         subtitle={brief.briefTier === 'flash' ? 'gerado com IA (Flash)' : brief.briefBadge ? `(${brief.briefBadge})` : undefined}
-        maxWidth="lg"
+        maxWidth="2xl"
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs tabular-nums text-[var(--text-muted)]" title="Cota diária do Flash (reserva do brief incluída)">
