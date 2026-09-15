@@ -15,6 +15,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/coingecko/, ''),
       },
+      '/api/coincap': {
+        target: 'https://api.coincap.io',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/coincap/, ''),
+      },
       '/api/binance': {
         target: 'https://api.binance.com',
         changeOrigin: true,

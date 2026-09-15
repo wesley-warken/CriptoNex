@@ -59,6 +59,37 @@ export async function geckoUniversePage(page: number, withSparkline: boolean): P
   }));
 }
 
+// Fallback público sem key (public-apis) — CoinCap: https://api.coincap.io/v2/assets
+interface CapRow { id: string; rank: string; symbol: string; name: string; priceUsd: string; marketCapUsd: string; volumeUsd24Hr: string; changePercent24Hr: string; }
+async function coincapUniversePage(page: number): Promise<UniverseCoin[]> {
+  const limit = PER_PAGE;
+  const offset = (page - 1) * PER_PAGE;
+  // usa /api/coincap proxy quando em localhost para evitar CORS, senão direto
+  const baseCap = typeof window !== 'undefined' && window.location.port === '5173' ? '/api/coincap/v2/assets' : 'https://api.coincap.io/v2/assets';
+  const url = `${baseCap}?limit=${limit}&offset=${offset}`;
+  await acquire('coingecko');
+  const r = await fetchWithTimeout(url, 15000);
+  if (!r.ok) throw new Error(`CoinCap ${r.status}`);
+  const j = (await r.json()) as { data: CapRow[] };
+  const rows = j.data ?? [];
+  return rows.map((m) => ({
+    id: m.id,
+    symbol: (m.symbol ?? '').toUpperCase(),
+    name: m.name ?? m.id,
+    image: undefined,
+    price: parseFloat(m.priceUsd) || 0,
+    marketCap: m.marketCapUsd ? parseFloat(m.marketCapUsd) : null,
+    rank: m.rank ? parseInt(m.rank, 10) : null,
+    volume24h: m.volumeUsd24Hr ? parseFloat(m.volumeUsd24Hr) : null,
+    change1h: null,
+    change24h: m.changePercent24Hr ? parseFloat(m.changePercent24Hr) : null,
+    change7d: null,
+    change30d: null,
+    change1y: null,
+    spark7d: undefined,
+  }));
+}
+
 export interface UniverseProgress {
   loaded: number;
   done: boolean;
@@ -109,10 +140,26 @@ export async function fetchCryptoUniverse(
         backoff = Math.min(backoff * 2, 60000);
         continue;
       }
-      // Falha de rede genérica (Failed to fetch): com dados parciais, não quebra o universo
+      // Falha de rede genérica (Failed to fetch): tenta fallback público CoinCap antes de quebrar
       const msg = e instanceof Error ? e.message : String(e);
       const isNet = /Failed to fetch|NetworkError|fetch|load failed/i.test(msg);
       if (isNet) {
+        // Fallback público (public-apis) quando CoinGecko cai — mantém Top 300 com dados de mercado
+        try {
+          const capRows = await coincapUniversePage(page);
+          if (capRows.length) {
+            acc = mergeUniverse(acc, capRows);
+            onPage(acc, page);
+            await idbSet(IDB_KEYS.cryptoUniverse, acc, CRYPTO_TTL_MS);
+            page += 1;
+            backoff = 2000;
+            consecutive429 = 0;
+            await sleep(PAGE_DELAY_MS);
+            continue;
+          }
+        } catch {
+          // fallback também falhou, segue para lógica de rede abaixo
+        }
         if (acc.length > 0) {
           // Retorna o acumulado em cache; boot vai exibir "rede indisponível — exibindo cache"
           await sleep(backoff);
