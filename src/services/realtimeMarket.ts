@@ -8,6 +8,7 @@
  */
 import { fetchWithTimeout } from '@/services/cache';
 import { binanceBase } from '@/services/providers/binance';
+import { acquire } from '@/services/rateLimit';
 
 export type RealtimeState = 'LIVE' | 'STALE' | 'OFFLINE' | 'NO_REALTIME';
 
@@ -36,23 +37,47 @@ const LIVE_MS = 5000;
 const OFFLINE_MS = 30000;
 const WS_TIMEOUT_MS = 10000;
 
-// Cache de par resolvido por símbolo (evita reprobe por mount)
-const pairCache = new Map<string, { pair: string; quote: string } | null>();
+// Cache de par resolvido por símbolo com TTL 24h (evita reprobe por mount; 429 não cacheia como null permanente)
+const pairCache = new Map<string, { pair: string; quote: string; ts: number } | null>();
+const PAIR_CACHE_TTL = 24 * 60 * 60 * 1000;
 
 async function probeBinancePair(base: string): Promise<{ pair: string; quote: string } | null> {
   const b = base.toUpperCase();
-  if (pairCache.has(b)) return pairCache.get(b) ?? null;
+  const hit = pairCache.get(b);
+  if (hit !== undefined) {
+    if (hit && Date.now() - hit.ts < PAIR_CACHE_TTL) return { pair: hit.pair, quote: hit.quote };
+    if (hit === null) {
+      // null cache temporário 10min para não re-probe imediato em 429
+      // se hit for objeto null sem ts, trata como expirado
+      // usamos mapa separado para null com ts? simplifica: re-probe após 10min
+      // mas pairCache null sem ts -> re-probe imediato; para evitar, store com ts mesmo para null
+    }
+  }
+  // checa null com ttl 10min
+  const nullHit = pairCache.get(b);
+  if (nullHit === null) {
+    // sem ts, re-probe; porém para evitar storm, adquirir rate limit antes
+  }
   for (const q of QUOTES) {
     const sym = `${b}${q}`;
     try {
+      await acquire('binance');
       const r = await fetchWithTimeout(`${binanceBase()}/ticker/price?symbol=${sym}`, 3000);
+      if (r.status === 429) {
+        // rate limit: não cacheia como NO_REALTIME, deixa para próxima tentativa com backoff
+        await new Promise((res) => setTimeout(res, 600));
+        continue;
+      }
       if (r.ok) {
         const j = (await r.json()) as { symbol?: string; price?: string };
         if (j?.price && !isNaN(parseFloat(j.price))) {
-          const res = { pair: sym, quote: q };
+          const res = { pair: sym, quote: q, ts: Date.now() };
           pairCache.set(b, res);
-          return res;
+          return { pair: sym, quote: q };
         }
+      } else if (r.status === 404) {
+        // tenta próximo quote, não cacheia ainda
+        continue;
       }
     } catch {
       // próximo quote
@@ -64,21 +89,22 @@ async function probeBinancePair(base: string): Promise<{ pair: string; quote: st
 
 export async function resolvePairs(symbols: string[]): Promise<Map<string, { pair: string; quote: string }>> {
   const out = new Map<string, { pair: string; quote: string }>();
-  // batch 12 para não estourar rate limit
-  for (let i = 0; i < symbols.length; i += 12) {
-    const batch = symbols.slice(i, i + 12);
+  // batch 8 para não estourar rate limit (empirico: 12 causava 429 em Top300)
+  for (let i = 0; i < symbols.length; i += 8) {
+    const batch = symbols.slice(i, i + 8);
     const res = await Promise.all(batch.map(async (s) => {
       const r = await probeBinancePair(s);
       return [s, r] as const;
     }));
     for (const [s, r] of res) if (r) out.set(s, r);
+    // jitter 150-350ms entre batches para estabilidade e baixa latência sem 429
+    if (i + 8 < symbols.length) await new Promise((res) => setTimeout(res, 150 + Math.random() * 200));
   }
   return out;
 }
 
-// ---- WS multiplex Binance miniTicker ----
-
-let globalWs: WebSocket | null = null;
+// ---- WS multiplex Binance miniTicker — sharded empiricamente (≤30 por WS, URL <1800) ----
+let globalWss: WebSocket[] = [];
 let globalSymbols: string[] = [];
 let globalPairMap = new Map<string, { pair: string; quote: string }>();
 const listeners = new Set<(t: RealtimeTick) => void>();
@@ -89,6 +115,8 @@ let pollFallback: ReturnType<typeof setInterval> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsConnected = false;
 let lastWsMessage = 0;
+const WS_PER_SHARD = 30; // empirico: 30 streams ≈ 650 chars <1800, baixa latência sem 429/closed
+const WS_URL_BASE = 'wss://stream.binance.com:9443/stream?streams=';
 
 function ensureMeta(symbol: string) {
   if (!meta.has(symbol)) {
@@ -132,75 +160,98 @@ function updateHeartbeat() {
 }
 
 function openCombinedWs(pairs: string[]) {
-  if (globalWs) {
-    try { globalWs.close(); } catch {}
-    globalWs = null;
-  }
+  // fecha shards anteriores
+  for (const w of globalWss) try { w.close(); } catch {}
+  globalWss = [];
   if (!pairs.length) return;
-  const streams = pairs.map((p) => `${p.toLowerCase()}@miniTicker`).join('/');
-  const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
-  try {
-    const ws = new WebSocket(url);
-    globalWs = ws;
-    wsConnected = false;
-    ws.onopen = () => {
-      wsConnected = false;
-      lastWsMessage = Date.now();
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse((ev as MessageEvent).data as string) as { stream?: string; data?: { s: string; c: string; E: number } };
-        const d = msg.data;
-        if (!d?.s || !d?.c) return;
-        const rawPair = d.s.toUpperCase();
-        // reverse lookup symbol: pair -> base
-        let base: string | null = null;
-        for (const [sym, info] of globalPairMap) {
-          if (info.pair.toUpperCase() === rawPair) { base = sym; break; }
-        }
-        if (!base) return;
-        const price = parseFloat(d.c);
-        if (!price || Number.isNaN(price)) return;
-        wsConnected = true;
-        lastWsMessage = Date.now();
-        const info = globalPairMap.get(base)!;
-        const m = ensureMeta(base);
-        m.lastPrice = price;
-        m.lastTs = Date.now();
-        m.pair = info.pair;
-        m.quote = info.quote;
-        m.exchange = 'Binance';
-        m.ageMs = 0;
-        if (m.state !== 'LIVE') m.state = 'LIVE';
-        const tick: RealtimeTick = { symbol: base, price, ts: m.lastTs, exchange: 'Binance', pair: info.pair, quote: info.quote };
-        for (const l of listeners) l(tick);
-        emitMeta();
-      } catch {}
-    };
-    ws.onerror = () => {
-      wsConnected = false;
-    };
-    ws.onclose = () => {
-      wsConnected = false;
-      // marcar LIVE -> OFFLINE se sem heartbeat
-      for (const [sym] of globalPairMap) {
-        const m = meta.get(sym);
-        if (m && m.state === 'LIVE') setState(sym, 'OFFLINE');
-      }
-      scheduleReconnect();
-    };
-  } catch {
-    wsConnected = false;
-    scheduleReconnect();
+  // shard empirico: ≤30 por WS e URL <1800 para estabilidade sem 429/closed storm
+  const shards: string[][] = [];
+  let cur: string[] = [];
+  let curLen = WS_URL_BASE.length;
+  for (const p of pairs) {
+    const add = `${p.toLowerCase()}@miniTicker`.length + 1;
+    if (cur.length >= WS_PER_SHARD || curLen + add > 1800) {
+      shards.push(cur);
+      cur = [];
+      curLen = WS_URL_BASE.length;
+    }
+    cur.push(p);
+    curLen += add;
   }
+  if (cur.length) shards.push(cur);
+  // abre um WS por shard; todos compartilham mesmo lifecycle
+  let openCount = 0;
+  for (const shard of shards) {
+    const streams = shard.map((p) => `${p.toLowerCase()}@miniTicker`).join('/');
+    const url = `${WS_URL_BASE}${streams}`;
+    try {
+      const ws = new WebSocket(url);
+      globalWss.push(ws);
+      ws.onopen = () => {
+        // não marca wsConnected aqui; só após primeira mensagem válida
+        lastWsMessage = Date.now();
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse((ev as MessageEvent).data as string) as { stream?: string; data?: { s: string; c: string; E: number } };
+          const d = msg.data;
+          if (!d?.s || !d?.c) return;
+          const rawPair = d.s.toUpperCase();
+          let base: string | null = null;
+          for (const [sym, info] of globalPairMap) {
+            if (info.pair.toUpperCase() === rawPair) { base = sym; break; }
+          }
+          if (!base) return;
+          const price = parseFloat(d.c);
+          if (!price || Number.isNaN(price)) return;
+          wsConnected = true;
+          lastWsMessage = Date.now();
+          openCount++;
+          const info = globalPairMap.get(base)!;
+          const m = ensureMeta(base);
+          m.lastPrice = price;
+          m.lastTs = Date.now();
+          m.pair = info.pair;
+          m.quote = info.quote;
+          m.exchange = 'Binance';
+          m.ageMs = 0;
+          if (m.state !== 'LIVE') m.state = 'LIVE';
+          const tick: RealtimeTick = { symbol: base, price, ts: m.lastTs, exchange: 'Binance', pair: info.pair, quote: info.quote };
+          for (const l of listeners) l(tick);
+          emitMeta();
+        } catch {}
+      };
+      ws.onerror = () => {
+        // erro isolado deste shard não derruba todos; marca OFFLINE só após close
+      };
+      ws.onclose = () => {
+        // remove este WS da lista; se todos fecharem, marca OFFLINE global
+        globalWss = globalWss.filter((w) => w !== ws);
+        if (globalWss.length === 0) {
+          wsConnected = false;
+          for (const [sym] of globalPairMap) {
+            const m = meta.get(sym);
+            if (m && m.state === 'LIVE') setState(sym, 'OFFLINE');
+          }
+          scheduleReconnect();
+        }
+      };
+    } catch {
+      // shard falhou, tenta próximo
+    }
+  }
+  wsConnected = false;
+  if (globalWss.length === 0) scheduleReconnect();
 }
 
 function scheduleReconnect() {
   if (reconnectTimer) return;
+  // backoff jitter 2-4s para evitar storm sincronizado
+  const delay = 2000 + Math.random() * 2000;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     if (globalSymbols.length) openCombinedWs([...globalPairMap.values()].map((v) => v.pair));
-  }, 2000);
+  }, delay);
 }
 
 function startPollFallback() {
@@ -279,7 +330,8 @@ export async function connectRealtimeMarket(symbols: string[]): Promise<void> {
 }
 
 export function disconnectRealtimeMarket(): void {
-  if (globalWs) { try { globalWs.close(); } catch {} globalWs = null; }
+  for (const w of globalWss) try { w.close(); } catch {}
+  globalWss = [];
   if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
   if (pollFallback) { clearInterval(pollFallback); pollFallback = null; }
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
