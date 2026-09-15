@@ -36,6 +36,7 @@ import {
 import { fetchMonCoinKlines } from '@/services/monitorData';
 import { subscribeMonEvents } from '@/services/monitorWatch';
 import { normalizeTickerKey } from '@/lib/symbols';
+import { connectRealtimeMarket, disconnectRealtimeMarket, subscribeRealtimeTicks, subscribeRealtimeMeta, type RealtimeMeta } from '@/services/realtimeMarket';
 
 type Tab = 'MON' | 'BTC' | 'PERF' | 'TREND' | 'RSI' | 'STOCH' | 'SUPER' | 'VOL' | 'MACD' | 'BB' | 'SMA' | 'EMA' | 'SR' | 'PAT';
 type SortKey = 'marketCap' | 'symbol' | 'price' | 'change1h' | 'change24h' | 'change7d' | 'change30d' | 'change1y' | 'volume24h'
@@ -270,6 +271,10 @@ export function Radar() {
   const [monDegraded, setMonDegraded] = useState(0);
   /** Detalhe por filtro para tooltip (ex.: "RSI 1d: 74, Super 4h: 12"). */
   const [monDegradedDetail, setMonDegradedDetail] = useState('');
+  /** Histórico por moeda para atualização incremental do candle em formação (hist + realtime). */
+  const monHistRef = useRef<Map<string, { coin: UniverseCoin; kl: Record<MonTf, Candle[] | null>; rangeKl: Partial<Record<MonTf, Candle[] | null>> }>>(new Map());
+  /** Meta realtime por símbolo (LIVE/STALE/OFFLINE/NO_REALTIME + idade). */
+  const [realtimeMeta, setRealtimeMeta] = useState<Map<string, RealtimeMeta>>(new Map());
   /** Pausa com motivo quando não há universo Top N válido para analisar. */
   const [monPaused, setMonPaused] = useState<string | null>(null);
   /** Id do filtro em edição no construtor (null = criando novo). */
@@ -566,10 +571,13 @@ export function Radar() {
       const plan = planMonitorData(validFilters);
       const top = monUniverse;
       const data = new Map<string, MonData>();
+      monHistRef.current.clear();
       for (let i = 0; i < top.length; i += 8) {
         const batch = await Promise.all(
           top.slice(i, i + 8).map(async (c) => {
             const { kl, rangeKl } = await fetchMonCoinKlines(c, plan);
+            // Guarda histórico para atualização incremental do candle em formação (§3)
+            monHistRef.current.set(c.symbol, { coin: c, kl: { ...kl }, rangeKl: { ...rangeKl } });
             return [c.symbol, buildMonData(c, kl, rangeKl)] as const;
           }),
         );
@@ -653,6 +661,77 @@ export function Radar() {
     return () => unsub();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  // ---- Realtime market stream (§1-10): WebSocket > REST poll fallback, LIVE/STALE/OFFLINE, NO_REALTIME explícito ----
+  useEffect(() => {
+    if (tab !== 'MON' || monMode !== 'realtime' || !monUniverse.length) {
+      disconnectRealtimeMarket();
+      return;
+    }
+    let alive = true;
+    // Conecta stream para o pelotão atual (resolve USDT→USDC→BTC, §5)
+    void connectRealtimeMarket(monUniverse.map((c) => c.symbol)).catch(() => {});
+    const unsubMeta = subscribeRealtimeMeta((m) => { if (alive) setRealtimeMeta(new Map(m)); });
+    const unsubTicks = subscribeRealtimeTicks((tick) => {
+      if (!alive || !monReadyRef.current) return;
+      const entry = monHistRef.current.get(tick.symbol);
+      if (!entry) return;
+      // Atualiza candle em formação (§3): 99 hist + candle atual com preço realtime
+      const tfs: MonTf[] = ['1d', '1h', '4h', '1w'];
+      for (const tf of tfs) {
+        const kl = entry.kl[tf];
+        if (!kl || !kl.length) continue;
+        const last = kl[kl.length - 1];
+        if (!last) continue;
+        // Para 1d, candle diário em formação via preço atual (§2)
+        const upd: Candle = { time: last.time, open: last.open, high: Math.max(last.high, tick.price), low: Math.min(last.low, tick.price), close: tick.price, volume: last.volume };
+        kl[kl.length - 1] = upd;
+        const rk = entry.rangeKl[tf];
+        if (rk && rk.length) {
+          const rl = rk[rk.length - 1];
+          if (rl) rk[rk.length - 1] = { ...rl, high: Math.max(rl.high, tick.price), low: Math.min(rl.low, tick.price), close: tick.price };
+        }
+      }
+      try {
+        const newMon = buildMonData(entry.coin, entry.kl, entry.rangeKl);
+        setMonData((prev) => {
+          const next = new Map(prev);
+          next.set(tick.symbol, newMon);
+          return next;
+        });
+        // Reavalia filtros só desta moeda e emite bordas §7 sem monRefresh manual
+        const valid = activeMonFilters.filter((f) => validateFilter(f).length === 0);
+        const now = Date.now();
+        const prevActive = loadMonActive();
+        const nextActive = { ...prevActive };
+        let changed = false;
+        const newEvents: MonEdgeEvent[] = [];
+        for (const f of valid) {
+          const key = `${f.id}:${tick.symbol}`;
+          const st = evalFilterState(newMon, f);
+          const was = !!prevActive[key];
+          if (st === 'active' && !was) { nextActive[key] = true; newEvents.push({ key, filterId: f.id, symbol: tick.symbol, ts: now }); changed = true; }
+          else if (st === 'inactive' && was) { delete nextActive[key]; changed = true; }
+          // unknown mantém estado (tri-state §4)
+        }
+        if (changed) {
+          saveMonActive(nextActive);
+          const merged = [...newEvents, ...loadMonEvents()].slice(0, 200);
+          saveMonEvents(merged);
+          if (monReadyRef.current) setMonEvents(merged);
+          else pendingMonEventsRef.current = merged;
+        }
+        // Atualiza idade do cálculo
+        setIndAt(now);
+      } catch {}
+    });
+    return () => {
+      alive = false;
+      unsubMeta(); unsubTicks();
+      disconnectRealtimeMarket();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, monMode, monUniverse.map((c)=>c.id).join(','), activeMonFilters.map((f)=>f.id).join(',')]);
 
   // Supertrend: 1h/4h do sparkline (instantâneo) + 1d/1s da rede
   useEffect(() => {
@@ -897,6 +976,26 @@ export function Radar() {
     if (monFavOnly) out = out.filter((e) => favNorm.has(normalizeTickerKey(e.coin.symbol)));
     return out;
   }, [tab, rows, q, monData, activeMonFilters, allMonFilters, monEvents, monMode, monFavOnly, favs]);
+
+  // ---- Realtime summary (§6/11): LIVE/STALE/OFFLINE/NO_REALTIME counts + idade último evento ----
+  const realtimeSummary = useMemo(() => {
+    if (tab !== 'MON' || monMode !== 'realtime' || !realtimeMeta.size) return null;
+    let live = 0, stale = 0, offline = 0, no = 0;
+    let minAge: number | null = null;
+    for (const m of realtimeMeta.values()) {
+      if (m.state === 'LIVE') { live += 1; if (m.ageMs != null) minAge = minAge == null ? m.ageMs : Math.min(minAge, m.ageMs); }
+      else if (m.state === 'STALE') stale += 1;
+      else if (m.state === 'OFFLINE') offline += 1;
+      else if (m.state === 'NO_REALTIME') no += 1;
+    }
+    const fmtAge = (ms: number | null) => {
+      if (ms == null) return '—';
+      if (ms < 1000) return `${(ms/1000).toFixed(1)}s`;
+      if (ms < 60000) return `${(ms/1000).toFixed(1)}s`;
+      return `${Math.round(ms/1000)}s`;
+    };
+    return { live, stale, offline, noRealtime: no, lastAge: fmtAge(minAge), total: realtimeMeta.size };
+  }, [tab, monMode, realtimeMeta]);
 
   const virtualizer = useVirtualizer({ count: shown.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW_H, overscan: 12 });
   const vItems = virtualizer.getVirtualItems();
@@ -1502,7 +1601,17 @@ export function Radar() {
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <span> · rate limit — usando cache + backoff</span>}
               {indNote}
-              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? <span title={monDegradedDetail ? `Dados incompletos por filtro — ${monDegradedDetail}. OHLC real indisponível (paridade TradingView); cache será usado quando possível.` : 'Algumas moedas sem OHLC real suficiente (paridade TradingView).'}>{` · ${monDegraded} com dados incompletos`}</span> : <span title="Todos os indicadores avaliados com dados suficientes">{` · dados completos`}</span>}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
+              {tab === 'MON' && realtimeSummary && monMode === 'realtime' && !indProg ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${realtimeSummary.live > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                  <span className={realtimeSummary.live === realtimeSummary.total ? 'text-emerald-400 font-semibold' : 'text-zinc-500'}>
+                    {realtimeSummary.live > 0 ? `LIVE · ${realtimeSummary.live}/${realtimeSummary.total}` : `OFFLINE · ${realtimeSummary.live}/${realtimeSummary.total}`}
+                  </span>
+                  {realtimeSummary.stale > 0 && <span className="text-amber-400">{`· ${realtimeSummary.stale} STALE`}</span>}
+                  {realtimeSummary.noRealtime > 0 && <span className="text-zinc-500">{`· ${realtimeSummary.noRealtime} NO REALTIME`}</span>}
+                  <span>{`· último evento ${realtimeSummary.lastAge}`}</span>
+                </span>
+              ) : tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? <span title={monDegradedDetail ? `Dados incompletos por filtro — ${monDegradedDetail}. OHLC real indisponível (paridade TradingView); cache será usado quando possível.` : 'Algumas moedas sem OHLC real suficiente (paridade TradingView).'}>{` · ${monDegraded} com dados incompletos`}</span> : <span title="Todos os indicadores avaliados com dados suficientes">{` · dados completos`}</span>}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
             </span>
           }
         >
@@ -1538,10 +1647,31 @@ export function Radar() {
                       {e.seen > 0 && <span> · {relTime(e.seen)}</span>}
                     </span>
                   )}
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className={`shrink-0 transition-colors duration-150 ease-out active:scale-[0.98] ${favs.includes(e.coin.symbol) ? 'text-amber-300' : 'text-zinc-600 hover:text-zinc-300'}`}><Star size={14} fill={favs.includes(e.coin.symbol) ? 'currentColor' : 'none'} /></button>
-                    {coinIcon(e.coin)}
-                    <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline">{e.coin.name}</Link>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="flex items-center gap-1.5">
+                      <button onClick={() => toggleFav(e.coin.symbol)} title="Favoritar" className={`shrink-0 transition-colors duration-150 ease-out active:scale-[0.98] ${favs.includes(e.coin.symbol) ? 'text-amber-300' : 'text-zinc-600 hover:text-zinc-300'}`}><Star size={14} fill={favs.includes(e.coin.symbol) ? 'currentColor' : 'none'} /></button>
+                      {coinIcon(e.coin)}
+                      <Link to={`/monitor?symbol=${e.coin.symbol}`} className="truncate font-semibold text-[var(--text-primary)] transition-colors duration-150 ease-out hover:text-[var(--brand)] hover:underline">{e.coin.name}</Link>
+                    </span>
+                    {monMode === 'realtime' && (() => {
+                      const m = realtimeMeta.get(e.coin.symbol);
+                      const price = m?.lastPrice ?? e.coin.price;
+                      const fmt = price ? fmtPrice(price) : '—';
+                      if (!m) return <span className="pl-6 text-[11px] tabular-nums text-zinc-500">{fmt}</span>;
+                      if (m.state === 'NO_REALTIME') return <span className="pl-6 text-[11px] font-semibold tabular-nums text-zinc-500">{fmt} · <span className="rounded border border-zinc-600 px-1 py-px text-[10px]">NO REALTIME</span></span>;
+                      const age = m.ageMs != null ? (m.ageMs < 1000 ? `${(m.ageMs/1000).toFixed(1)}s` : m.ageMs < 60000 ? `${(m.ageMs/1000).toFixed(1)}s` : `${Math.round(m.ageMs/1000)}s`) : '—';
+                      const col = m.state === 'LIVE' ? 'text-emerald-400' : m.state === 'STALE' ? 'text-amber-400' : 'text-red-400';
+                      const dot = m.state === 'LIVE' ? 'bg-emerald-400' : m.state === 'STALE' ? 'bg-amber-400' : 'bg-red-400';
+                      return (
+                        <span className="flex items-center gap-1 pl-6 text-[11px] tabular-nums">
+                          <span className="text-zinc-300">{fmt}</span>
+                          <span className={`inline-flex items-center gap-1 font-semibold ${col}`}>
+                            <span className={`h-1 w-1 rounded-full ${dot} ${m.state==='LIVE'?'animate-pulse':''}`} />{m.state}
+                          </span>
+                          <span className="text-zinc-500">· {m.exchange ?? '—'} {m.pair ?? ''} · {age}</span>
+                        </span>
+                      );
+                    })()}
                   </span>
                   <span className="flex min-w-0 items-center">
                     <span className="mr-2 inline-flex shrink-0 items-center justify-center text-[var(--text-muted)]">
