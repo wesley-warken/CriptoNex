@@ -266,8 +266,10 @@ export function Radar() {
   const pendingMonEventsRef = useRef<MonEdgeEvent[]>([]);
   /** Bordas inativo→ativo (feed Realtime), persistidas; boot carrega em silêncio. */
   const [monEvents, setMonEvents] = useState<MonEdgeEvent[]>(() => loadMonEvents());
-  /** Moedas avaliadas sem dados suficientes em algum filtro ativo (degradado). */
+  /** Moedas avaliadas sem dados suficientes em algum filtro ativo (degradado). Conta distinta por moeda. */
   const [monDegraded, setMonDegraded] = useState(0);
+  /** Detalhe por filtro para tooltip (ex.: "RSI 1d: 74, Super 4h: 12"). */
+  const [monDegradedDetail, setMonDegradedDetail] = useState('');
   /** Pausa com motivo quando não há universo Top N válido para analisar. */
   const [monPaused, setMonPaused] = useState<string | null>(null);
   /** Id do filtro em edição no construtor (null = criando novo). */
@@ -582,14 +584,19 @@ export function Radar() {
       setMonData(data);
       const now = Date.now();
       const states: { key: string; filterId: string; symbol: string; state: MonEdgeState }[] = [];
-      let degraded = 0;
+      const degradedCoins = new Set<string>();
+      const perFilterUnknown = new Map<string, number>();
       for (const d of data.values()) {
         for (const f of validFilters) {
           const state = evalFilterState(d, f);
-          if (state === 'unknown') degraded += 1;
+          if (state === 'unknown') {
+            degradedCoins.add(d.symbol);
+            perFilterUnknown.set(f.id, (perFilterUnknown.get(f.id) ?? 0) + 1);
+          }
           states.push({ key: `${f.id}:${d.symbol}`, filterId: f.id, symbol: d.symbol, state });
         }
       }
+      const degraded = degradedCoins.size;
       // Boot silencioso: ativos persistidos não re-disparam após reload.
       const { active, events, changed } = diffEdgeEvents(loadMonActive(), states, now);
       if (changed) {
@@ -599,6 +606,13 @@ export function Radar() {
         setMonEvents(merged.slice(0, 200));
       }
       setMonDegraded(degraded);
+      if (perFilterUnknown.size) {
+        const parts = [...perFilterUnknown.entries()].map(([fid, n]) => {
+          const fname = validFilters.find((x) => x.id === fid)?.name ?? fid;
+          return `${fname}: ${n}`;
+        });
+        setMonDegradedDetail(parts.join(' · '));
+      } else setMonDegradedDetail('');
       setMonSecs(Math.max(1, Math.round((Date.now() - t0) / 1000)));
       setIndProg(null);
       setIndAt(Date.now());
@@ -1488,14 +1502,15 @@ export function Radar() {
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <span> · rate limit — usando cache + backoff</span>}
               {indNote}
-              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? ` · ${monDegraded} sem dados` : ''}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
+              {tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? <span title={monDegradedDetail ? `Dados incompletos por filtro — ${monDegradedDetail}. OHLC real indisponível (paridade TradingView); cache será usado quando possível.` : 'Algumas moedas sem OHLC real suficiente (paridade TradingView).'}>{` · ${monDegraded} com dados incompletos`}</span> : <span title="Todos os indicadores avaliados com dados suficientes">{` · dados completos`}</span>}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
             </span>
           }
         >
         {u.error && !u.coins.length && <ErrorBox message={u.error} onRetry={u.reload} />}
         {u.error && u.coins.length > 0 && (
-          <div className="mb-2 text-xs text-red-400">
-            Atualização pausada ({u.error}) — exibindo cache. <button onClick={u.reload} className="underline transition-colors duration-150 ease-out active:scale-[0.98]">Tentar de novo</button>
+          <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-amber-300">
+            <span>Atualização pausada ({u.error}) — exibindo cache de {cacheAge(u.cacheTs) || 'agora mesmo'}.</span>
+            <button onClick={u.reload} className="underline transition-colors duration-150 ease-out hover:text-amber-200 active:scale-[0.98]">Tentar de novo</button>
           </div>
         )}
         {!rows.length ? (

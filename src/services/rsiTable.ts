@@ -1,4 +1,4 @@
-import { fetchWithTimeout } from '@/services/cache';
+import { fetchWithTimeout, retry } from '@/services/cache';
 import { coinHistory, coinHistoryHours } from '@/services/history';
 import { closesToCandles } from '@/services/indicatorTable';
 import { multiKlines, probeBinance, isFresh, type KlineInterval } from '@/services/providers/multiKlines';
@@ -203,27 +203,52 @@ const REAL_TTL_MS: Record<AnyTf, number> = {
  * Klines OHLC reais com frescor (multi-fonte Binance→Kraken→Coinbase).
  * null = indisponível (o chamador mostra "indisponível", nunca sintético).
  * Usado pelos indicadores de range do Monitor (stoch/super/voto-Stoch).
+ * Grace: se rede falhar, reusa stale por até 1.5× TTL para reduzir "74 sem dados".
  */
 export async function getRealKlines(
   symbol: string, interval: AnyTf, minCandles: number, limit: number,
 ): Promise<Candle[] | null> {
+  let hitData: Candle[] | null = null;
+  let hitTs = 0;
   try {
     const hit = await idbGet<Candle[]>(realKey(symbol, interval));
-    if (hit && hit.data.length >= minCandles && isFresh(hit.data, interval)
-      && Date.now() - hit.ts < REAL_TTL_MS[interval]) {
-      return hit.data;
+    if (hit && hit.data.length >= minCandles) {
+      hitData = hit.data;
+      hitTs = hit.ts;
+      if (isFresh(hit.data, interval) && Date.now() - hit.ts < REAL_TTL_MS[interval]) {
+        return hit.data;
+      }
+      // Stale com graça: serve na hora e atualiza em background (evita "Failed to fetch" cascatear para 74 sem dados)
+      if (Date.now() - hit.ts < REAL_TTL_MS[interval] * 1.5) {
+        void (async () => {
+          try {
+            const kl = (await retry(() => multiKlines(symbol, interval, limit, minCandles), 1) as { klines: Candle[] | null } | null)?.klines ?? null;
+            if (kl && kl.length >= minCandles && isFresh(kl, interval)) {
+              await idbSet(realKey(symbol, interval), kl, REAL_TTL_MS[interval]);
+            }
+          } catch {}
+        })();
+        return hit.data;
+      }
     }
   } catch {
     /* segue para rede */
   }
-  const kl = (await multiKlines(symbol, interval, limit, minCandles))?.klines ?? null;
-  if (kl && kl.length >= minCandles && isFresh(kl, interval)) {
-    try {
-      await idbSet(realKey(symbol, interval), kl, REAL_TTL_MS[interval]);
-    } catch {
-      /* quota cheia */
+  try {
+    const kl = (await retry(() => multiKlines(symbol, interval, limit, minCandles), 1) as { klines: Candle[] | null } | null)?.klines ?? null;
+    if (kl && kl.length >= minCandles && isFresh(kl, interval)) {
+      try {
+        await idbSet(realKey(symbol, interval), kl, REAL_TTL_MS[interval]);
+      } catch {
+        /* quota cheia */
+      }
+      return kl;
     }
-    return kl;
+  } catch {
+    /* rede falhou — fallback para stale mesmo que não fresh, para não virar "sem dados" */
+    if (hitData && Date.now() - hitTs < REAL_TTL_MS[interval] * 3) return hitData;
   }
+  // Último fallback: devolve stale mesmo velho (até 3× TTL) antes de retornar null
+  if (hitData && Date.now() - hitTs < REAL_TTL_MS[interval] * 3) return hitData;
   return null;
 }
