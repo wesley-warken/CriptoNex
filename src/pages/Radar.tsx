@@ -675,8 +675,10 @@ export function Radar() {
       return;
     }
     let alive = true;
+    // Q2: Todas em Realtime limitado a Top 300 para estabilidade (§ Todas = 750 seria 25 WS ×750)
+    const realtimeUniverse = topN == null ? monUniverse.slice(0, 300) : monUniverse;
     // Conecta stream para o pelotão atual (resolve USDT→USDC→BTC, §5)
-    void connectRealtimeMarket(monUniverse.map((c) => c.symbol)).catch(() => {});
+    void connectRealtimeMarket(realtimeUniverse.map((c) => c.symbol)).catch(() => {});
     const unsubMeta = subscribeRealtimeMeta((m) => { if (alive) setRealtimeMeta(new Map(m)); });
     const unsubTicks = subscribeRealtimeTicks((tick) => {
       if (!alive || !monReadyRef.current) return;
@@ -953,17 +955,21 @@ export function Radar() {
     type FeedItem = { coin: UniverseCoin; filter: MonFilter; seen: number; why: string; fresh: boolean };
     let out: FeedItem[];
     if (monMode === 'realtime') {
-      // Feed por eventos: últimas bordas inativo→ativo, sem duplicar ativas.
+      // Realtime mostra TODAS que satisfazem agora (100% do pelotão), NOVO só para borda recente <15min
       out = [];
-      for (const e of monEvents) {
-        const f = byId.get(e.filterId);
-        if (!f || !valid.has(f.id)) continue;
-        const coin = byNorm.get(normalizeTickerKey(e.symbol)) ?? bySymbol.get(e.symbol);
+      for (const md of monData.values()) {
+        const coin = byNorm.get(normalizeTickerKey(md.symbol)) ?? bySymbol.get(md.symbol);
         if (!coin || !matchQ(coin)) continue;
-        const md = monData.get(e.symbol) ?? monDataNorm.get(normalizeTickerKey(e.symbol));
-        out.push({ coin, filter: f, seen: e.ts, why: whyOf(md, f), fresh: Date.now() - e.ts < 15 * 60 * 1000 });
+        for (const f of activeMonFilters) {
+          if (!byId.has(f.id) || !valid.has(f.id)) continue;
+          if (evalFilter(md, f)) {
+            const ev = monEvents.find((x) => x.key === `${f.id}:${md.symbol}`);
+            const isFresh = ev ? Date.now() - ev.ts < 15 * 60 * 1000 : false;
+            out.push({ coin, filter: f, seen: ev?.ts ?? 0, why: whyOf(md, f), fresh: isFresh });
+          }
+        }
       }
-      out.sort((a, b) => b.seen - a.seen);
+      out.sort((a, b) => b.seen - a.seen || a.coin.symbol.localeCompare(b.coin.symbol));
     } else {
       out = [];
       for (const md of monData.values()) {
@@ -1618,6 +1624,7 @@ export function Radar() {
                   {realtimeSummary.stale > 0 && <span className="text-amber-400">{`· ${realtimeSummary.stale} STALE`}</span>}
                   {realtimeSummary.noRealtime > 0 && <span className="text-zinc-500">{`· ${realtimeSummary.noRealtime} NO REALTIME`}</span>}
                   <span>{`· último evento ${realtimeSummary.lastAge}`}</span>
+                  {topN == null && <span className="text-zinc-500">· Realtime limitado a Top 300</span>}
                 </span>
               ) : tab === 'MON' && (indProg ? <span>{` analisando ${indProg.done}/${indProg.total}…`}</span> : <span>{` · ${monData.size} moedas avaliadas`}{monSecs != null ? ` em ${monSecs}s` : ''}{indAt ? ` · calculado ${dataAge(indAt)}` : ''}{monDegraded > 0 ? <span title={monDegradedDetail ? `Dados incompletos por filtro — ${monDegradedDetail}. OHLC real indisponível (paridade TradingView); cache será usado quando possível.` : 'Algumas moedas sem OHLC real suficiente (paridade TradingView).'}>{` · ${monDegraded} com dados incompletos`}</span> : <span title="Todos os indicadores avaliados com dados suficientes">{` · dados completos`}</span>}{monPaused ? ` · pausado: ${monPaused}` : ''}</span>)}
             </span>
