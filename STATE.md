@@ -1,5 +1,8 @@
 # Loop State — CriptoNex
 
+Last run: 2026-09-15 — L2 Realtime Top filtro NA MAIN (49b6216): merge fix/realtime-top-filter 3dc43b0+a6e802d + push origin main | tsc 0, vitest 370/370, build OK
+- C1 shard WS empirico ≤30/URL<1800 + probe cache acquire + sem 429/closed storm; C2/C3 filtro percorre 100% pelotão (realtime mostra todas que satisfazem, NOVO só badge <15min), Todas limitado a Top300 em realtime, Top100→100 Top200→200 Top300→300 e 8/100. Verifier: APPROVE (2 arquivos, 139+/80-, tsc 0, 370 testes).
+
 Last run: 2026-09-15 — L2 Top 300 ranking NA MAIN (2b4a32d): merge fix/top300-ranking e8c26b6+cd70dda + push origin main | tsc 0, vitest 370/370, build OK
 - Top N por rank direto slice(0, topN) sem filtro marketCap null (§ rank), mcapTopIds alinhado, Todas=750 completo, Top100⊂200⊂300 validado, UI Top 300: 300 moedas separado de LIVE/STALE/NO_REALTIME. Verifier: APPROVE (3 arquivos, 61+/24-, tsc 0, 370 testes).
 
