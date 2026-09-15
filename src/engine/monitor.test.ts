@@ -270,9 +270,30 @@ describe('universo Top N por market cap (selectTopByMcap)', () => {
     const coins = [mk('C', 30), mk('A', 10), mk('B', 20)];
     expect(selectTopByMcap(coins as never, 2, 100).map((c) => c.symbol).sort()).toEqual(['B', 'C']);
   });
-  it('sem market cap: vazio (chamador pausa com aviso)', () => {
-    expect(selectTopByMcap([mk('A', 0)] as never, 100, 100)).toEqual([]);
+  it('sem market cap mas com rank: preserva por rank (não remove por marketCap null)', () => {
+    const coins = [mk('A', 0, 1), mk('B', 0, 2), mk('C', 10, 3)];
+    const top2 = selectTopByMcap(coins as never, 2, 100).map((c) => c.symbol).sort();
+    expect(top2).toEqual(['A', 'B']);
+  });
+  it('vazio só quando sem moedas (não quando marketCap null)', () => {
     expect(selectTopByMcap([] as never, 100, 100)).toEqual([]);
+    // com moeda única sem rank e marketCap 0 ainda retorna ela como única disponível (não vazio)
+    expect(selectTopByMcap([mk('A', 0)] as never, 1, 1).map((c) => c.symbol)).toEqual(['A']);
+  });
+  it('Top 100 ⊂ Top 200 ⊂ Top 300 e Top 300 =300 quando >=300 ranqueadas', () => {
+    const many = Array.from({ length: 500 }, (_, i) => mk(`C${i}`, 1e9 - i * 1e6, i + 1));
+    const top100 = new Set(selectTopByMcap(many as never, 100, 100).map((c) => c.symbol));
+    const top200 = new Set(selectTopByMcap(many as never, 200, 200).map((c) => c.symbol));
+    const top300 = selectTopByMcap(many as never, 300, 300);
+    expect(top300).toHaveLength(300);
+    for (const s of top100) expect(top200.has(s)).toBe(true);
+    for (const s of top200) expect(new Set(top300.map((c) => c.symbol)).has(s)).toBe(true);
+  });
+  it('Todas contém universo completo ordenado por rank', () => {
+    const many = Array.from({ length: 750 }, (_, i) => mk(`C${i}`, 1e9 - i * 1e6, i + 1));
+    const todas = selectTopByMcap(many as never, null, 300);
+    expect(todas).toHaveLength(750);
+    expect(todas[0].symbol).toBe('C0');
   });
 });
 

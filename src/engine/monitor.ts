@@ -663,29 +663,37 @@ export function saveMonEvents(events: MonEdgeEvent[]): void {
 }
 
 /**
- * Universo do Monitor: sempre Top N por market cap (rank oficial, senão
- * ordenação por marketCap). Nunca a ordem visual da tabela. Retorna vazio
- * quando não há market cap carregado — o chamador pausa com aviso.
+ * Universo do Monitor: Top N por ranking oficial quando disponível, nunca removendo
+ * por marketCap === null. Composição (Top N) separada de cobertura realtime (LIVE/STALE/NO_REALTIME).
+ * - topN != null: exatamente topN por rank válido direto slice(0, topN); fallback marketCap só quando sem rank.
+ * - topN == null (Todas): universo completo ordenado por rank quando disponível.
+ * Retorna vazio só quando coins vazio — chamador pausa.
  */
 export function selectTopByMcap(
   coins: UniverseCoin[],
   topN: number | null,
   fetchN: number,
 ): UniverseCoin[] {
-  const withMcap = coins.filter((c) => (c.marketCap ?? 0) > 0);
-  if (!withMcap.length) return [];
+  if (!coins.length) return [];
+  const hasRank = coins.some((c) => c.rank != null);
   if (topN == null) {
-    return [...withMcap]
-      .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
-      .slice(0, fetchN);
+    // Todas: universo completo, ordenado por rank quando houver, senão marketCap
+    if (hasRank) return [...coins].sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity));
+    return [...coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0));
   }
-  const hasOfficial = withMcap.some((c) => c.rank != null);
-  const pool = hasOfficial
-    ? withMcap.filter((c) => (c.rank ?? Infinity) <= topN)
-    : [...withMcap]
-      .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
-      .slice(0, topN);
-  return pool
-    .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0))
-    .slice(0, fetchN);
+  if (hasRank) {
+    // Chave primária: rank válido direto slice(0, topN) — sem janela 1.2, sem filtro marketCap
+    const sortedByRank = [...coins].sort((a, b) => {
+      const ra = a.rank ?? Infinity;
+      const rb = b.rank ?? Infinity;
+      if (ra !== rb) return ra - rb;
+      return (b.marketCap ?? 0) - (a.marketCap ?? 0);
+    });
+    const top = sortedByRank.slice(0, topN);
+    // Ordenação de exibição/validação por marketCap quando necessário, mantendo composição por rank
+    const display = [...top].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0));
+    return display.slice(0, Math.min(fetchN, display.length));
+  }
+  // Fallback sem rank: ordena por marketCap
+  return [...coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, topN).slice(0, fetchN);
 }

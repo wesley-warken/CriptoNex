@@ -186,13 +186,19 @@ export function Radar() {
   const setTopN = useStore((s) => s.setRadarTopN);
   /** Nº de moedas buscadas nas abas com klines; "Todas" = 300 (limite do fetch). */
   const fetchN = topN ?? 300;
-  /** Ids do pelotão Top N por market cap (memoizado: não reconstrói a cada tick de progresso). */
+  /** Ids do pelotão Top N por ranking oficial (sem filtrar por marketCap null). Exatamente topN por rank. */
   const mcapTopIds = useMemo(() => {
     if (topN == null) return null;
-    const hasOfficial = u.coins.some((c) => c.rank != null);
-    return hasOfficial
-      ? new Set(u.coins.filter((c) => (c.rank ?? Infinity) <= topN).map((c) => c.id))
-      : new Set([...u.coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, topN).map((c) => c.id));
+    const hasRank = u.coins.some((c) => c.rank != null);
+    if (hasRank) {
+      const sorted = [...u.coins].sort((a, b) => {
+        const ra = a.rank ?? Infinity, rb = b.rank ?? Infinity;
+        if (ra !== rb) return ra - rb;
+        return (b.marketCap ?? 0) - (a.marketCap ?? 0);
+      });
+      return new Set(sorted.slice(0, topN).map((c) => c.id));
+    }
+    return new Set([...u.coins].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)).slice(0, topN).map((c) => c.id));
   }, [u.coins, topN]);
   /** Opções do "Selecione uma crypto": top 200 por market cap. */
   const jumpOpts = useMemo(() => {
@@ -1597,6 +1603,8 @@ export function Radar() {
         right={
           <span className="text-xs normal-case tabular-nums text-zinc-500">
               {u.coins.length.toLocaleString('pt-BR')} moedas no universo
+              {tab === 'MON' && topN != null && monUniverse.length > 0 && <span> · Top {topN}: {monUniverse.length} moedas</span>}
+              {tab !== 'MON' && topN != null && mcapTopIds && <span> · Top {topN}: {mcapTopIds.size} moedas</span>}
               {!u.done && u.coins.length > 0 && <span> · carregando universo: {u.loaded.toLocaleString('pt-BR')}</span>}
               {u.done && u.fromCache && <span> · {cacheAge(u.cacheTs)}</span>}
               {u.rateLimited && <span> · rate limit — usando cache + backoff</span>}
