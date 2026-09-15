@@ -1,5 +1,8 @@
 # Loop State — CriptoNex
 
+Last run: 2026-09-15 — L2 Monitor sem dados NA MAIN (727c1ed): merge fix/monitor-semdados 31fdc5c + push origin main | tsc 0, vitest 362/362, build OK
+- Correção do screenshot: "74 sem dados" → distinção por moeda (Set) + tooltip por filtro + texto "com dados incompletos"/"dados completos" (`src/pages/Radar.tsx:270,585-615,1491`); rsiTable stale grace 1.5×/3× + retry (`src/services/rsiTable.ts:208-253`); universo "Failed to fetch" → "rede indisponível" + retry parcial (`src/services/universe.ts:108-125`, `src/services/universeHooks.ts:62-68`); banner amber com idade do cache (`src/pages/Radar.tsx:1502`). Verifier: APPROVE (4 arquivos, 82+/19-, tsc 0, 362 testes).
+
 Last run: 2026-09-14 — L2 Gemini 800 NA MAIN (73100b5): merge feat/gemini-800 0db883a + push origin main | tsc 0, vitest 355/355, build 37.7s
 
 ## High Priority (loop is acting or waiting on human)
