@@ -1,5 +1,8 @@
 # Loop State — CriptoNex
 
+Last run: 2026-09-15 — L2 Top 300 ranking NA MAIN (2b4a32d): merge fix/top300-ranking e8c26b6+cd70dda + push origin main | tsc 0, vitest 370/370, build OK
+- Top N por rank direto slice(0, topN) sem filtro marketCap null (§ rank), mcapTopIds alinhado, Todas=750 completo, Top100⊂200⊂300 validado, UI Top 300: 300 moedas separado de LIVE/STALE/NO_REALTIME. Verifier: APPROVE (3 arquivos, 61+/24-, tsc 0, 370 testes).
+
 Last run: 2026-09-15 — L2 Realtime verdadeiro NA MAIN (2440c28): merge fix/realtime-market d4b0960+7d445cf+9827fe9 + push origin main | tsc 0, vitest 367/367, build OK
 - REALTIME sem ~: WS Binance multiplex USDT→USDC→BTC (§5) + LIVE<5s/STALE<30s/OFFLINE/NO_REALTIME (§6), 99 hist + candle atual (§3), preço/ticker por WS > poll 5s fallback (§1), sem CoinGecko aproximado (§4/§8), bordas auto sem monRefresh (§7), UI ● LIVE · 248/248 · último evento + por ativo BTC · LIVE · Binance · 0.8s / NO REALTIME (§11). Verifier: APPROVE (3 arquivos, 488+, tsc 0, 367 testes).
 
