@@ -1009,6 +1009,21 @@ export function Radar() {
     return { live, stale, offline, noRealtime: no, lastAge: fmtAge(minAge), total: realtimeMeta.size };
   }, [tab, monMode, realtimeMeta]);
 
+  // C2: pausar Realtime quando rede indisponível e <50% avaliado (não mostrar 150 OFFLINE como TEMPO REAL)
+  useEffect(() => {
+    if (tab !== 'MON' || monMode !== 'realtime') return;
+    const total = topN ?? 300;
+    const evaluated = monData.size;
+    const isNetworkPaused = !!u.error && /rede indisponível/i.test(u.error);
+    const isMostlyOffline = realtimeSummary ? (realtimeSummary.offline + realtimeSummary.noRealtime) === realtimeSummary.total : false;
+    if ((isNetworkPaused || isMostlyOffline) && evaluated > 0 && evaluated < total * 0.5) {
+      setMonPaused(`Sem mercado realtime — rede indisponível — exibindo cache de ${cacheAge(u.cacheTs) || 'agora mesmo'}`);
+    } else if (monPaused && monPaused.startsWith('Sem mercado realtime')) {
+      // libera pausa quando rede voltar ou avaliação completar
+      if (!isNetworkPaused && !isMostlyOffline) setMonPaused(null);
+    }
+  }, [tab, monMode, monData.size, realtimeSummary, u.error, u.cacheTs, topN]);
+
   const virtualizer = useVirtualizer({ count: shown.length, getScrollElement: () => scrollRef.current, estimateSize: () => ROW_H, overscan: 12 });
   const vItems = virtualizer.getVirtualItems();
   const btc = useMemo(() => {
@@ -1644,7 +1659,7 @@ export function Radar() {
             <div className="grid items-center gap-2 px-3 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]" style={{ gridTemplateColumns: monMode === 'realtime' ? '9rem minmax(10rem,30%) 1fr 4.5rem' : 'minmax(11rem,32%) 1fr 4.5rem' }}>
               {monMode === 'realtime' && <span>Data</span>}<span>Moeda</span><span>Descrição</span><span className="text-right">Ações</span>
             </div>
-            {monFeed.length === 0 ? (
+            {(monFeed.length === 0 || (monPaused && monPaused.startsWith('Sem mercado realtime'))) ? (
               <MEmpty
                 title={monPaused ?? (indProg ? `Analisando mercado ${indProg.done}/${indProg.total}…` : monMode === 'realtime' ? 'Nada acontecendo agora' : 'Nenhum alerta ativo')}
                 hint={monPaused ? 'O Monitor retoma sozinho quando o universo carregar.' : 'Ative filtros no funil ou crie o seu próprio filtro.'}
