@@ -88,7 +88,8 @@ export async function fetchCryptoUniverse(
     try {
       // sparkline sempre: 168 fechamentos horários alimentam Tendência/RSI/Stoch/Super/BB
       // intradiários localmente (instantâneo, sem 1 call por moeda por tempo gráfico)
-      const rows = await retry(() => geckoUniversePage(page, true), 1);
+      // C1: retry 2 + preserva acc mesmo com rede instável
+      const rows = await retry(() => geckoUniversePage(page, true), 2);
       if (!rows.length) break;
       acc = mergeUniverse(acc, rows);
       onPage(acc, page);
