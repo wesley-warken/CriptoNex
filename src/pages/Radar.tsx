@@ -1017,7 +1017,7 @@ export function Radar() {
     const isNetworkPaused = !!u.error && /rede indisponível/i.test(u.error);
     const isMostlyOffline = realtimeSummary ? (realtimeSummary.offline + realtimeSummary.noRealtime) === realtimeSummary.total : false;
     if ((isNetworkPaused || isMostlyOffline) && evaluated > 0 && evaluated < total * 0.5) {
-      setMonPaused(`Sem mercado realtime — rede indisponível — exibindo cache de ${cacheAge(u.cacheTs) || 'agora mesmo'}`);
+      setMonPaused(`Sem mercado realtime — rede indisponível — exibindo ${cacheAge(u.cacheTs) || 'cache agora mesmo'}`);
     } else if (monPaused && monPaused.startsWith('Sem mercado realtime')) {
       // libera pausa quando rede voltar ou avaliação completar
       if (!isNetworkPaused && !isMostlyOffline) setMonPaused(null);
@@ -1648,7 +1648,7 @@ export function Radar() {
         {u.error && !u.coins.length && <ErrorBox message={u.error} onRetry={u.reload} />}
         {u.error && u.coins.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-amber-300">
-            <span>Atualização pausada ({u.error}) — exibindo cache de {cacheAge(u.cacheTs) || 'agora mesmo'}.</span>
+            <span>Atualização pausada ({u.error}) — exibindo {cacheAge(u.cacheTs) || 'cache agora mesmo'}.</span>
             <button onClick={u.reload} className="underline transition-colors duration-150 ease-out hover:text-amber-200 active:scale-[0.98]">Tentar de novo</button>
           </div>
         )}

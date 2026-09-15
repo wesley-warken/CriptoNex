@@ -256,43 +256,75 @@ function scheduleReconnect() {
 
 function startPollFallback() {
   if (pollFallback) return;
-  // Só como fallback quando WS OFFLINE — polling leve de price
+  // Só como fallback quando WS OFFLINE — polling leve de price (Binance > CryptoCompare public-apis)
   pollFallback = setInterval(async () => {
     if (wsConnected) return; // WS ok, não poll
     const toPoll: string[] = [];
-    for (const [sym, m] of meta) if (m.state !== 'NO_REALTIME') toPoll.push(sym);
+    for (const [sym] of meta) toPoll.push(sym);
     if (!toPoll.length) return;
-    // batch por 50 (limite da API ticker/price symbols[])
-    for (let i = 0; i < toPoll.length; i += 50) {
-      const batch = toPoll.slice(i, i + 50);
+    // batch por 30 (empirico, menor que 50 para evitar 429 em fallback)
+    for (let i = 0; i < toPoll.length; i += 30) {
+      const batch = toPoll.slice(i, i + 30);
       const pairs: string[] = [];
       const mapPairToSym = new Map<string, string>();
       for (const s of batch) {
         const info = globalPairMap.get(s);
         if (info) { pairs.push(info.pair); mapPairToSym.set(info.pair, s); }
       }
-      if (!pairs.length) continue;
-      try {
-        const r = await fetchWithTimeout(`${binanceBase()}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(pairs))}`, 5000);
-        if (!r.ok) continue;
-        const arr = (await r.json()) as { symbol: string; price: string }[];
-        const now = Date.now();
-        for (const row of arr) {
-          const sym = mapPairToSym.get(row.symbol.toUpperCase());
-          if (!sym) continue;
-          const price = parseFloat(row.price);
-          if (!price) continue;
-          const m = ensureMeta(sym);
-          const info = globalPairMap.get(sym)!;
-          m.lastPrice = price;
-          m.lastTs = now;
-          m.ageMs = 0;
-          if (m.state !== 'LIVE') m.state = 'LIVE';
-          const tick: RealtimeTick = { symbol: sym, price, ts: now, exchange: 'Binance', pair: info.pair, quote: info.quote };
-          for (const l of listeners) l(tick);
-        }
-        emitMeta();
-      } catch {}
+      let binanceOk = false;
+      if (pairs.length) {
+        try {
+          const r = await fetchWithTimeout(`${binanceBase()}/ticker/price?symbols=${encodeURIComponent(JSON.stringify(pairs))}`, 5000);
+          if (r.ok) {
+            const arr = (await r.json()) as { symbol: string; price: string }[];
+            const now = Date.now();
+            for (const row of arr) {
+              const sym = mapPairToSym.get(row.symbol.toUpperCase());
+              if (!sym) continue;
+              const price = parseFloat(row.price);
+              if (!price) continue;
+              const m = ensureMeta(sym);
+              const info = globalPairMap.get(sym)!;
+              m.lastPrice = price;
+              m.lastTs = now;
+              m.ageMs = 0;
+              if (m.state !== 'LIVE') m.state = 'LIVE';
+              const tick: RealtimeTick = { symbol: sym, price, ts: now, exchange: 'Binance', pair: info.pair, quote: info.quote };
+              for (const l of listeners) l(tick);
+            }
+            emitMeta();
+            binanceOk = true;
+          }
+        } catch {}
+      }
+      // Fallback público (public-apis) quando Binance falha ou sem par — CryptoCompare pricemulti
+      const needFallback = !binanceOk;
+      if (needFallback) {
+        // batch já é 30, usa CryptoCompare para todos do batch (inclui NO_REALTIME)
+        const fsyms = batch.join(',');
+        try {
+          const r2 = await fetchWithTimeout(`https://min-api.cryptocompare.com/data/pricemulti?fsyms=${fsyms}&tsyms=USD`, 5000);
+          if (r2.ok) {
+            const j = (await r2.json()) as Record<string, { USD: number }>;
+            const now2 = Date.now();
+            for (const s of batch) {
+              const v = j[s.toUpperCase()]?.USD;
+              if (v == null || Number.isNaN(v)) continue;
+              const m = ensureMeta(s);
+              m.lastPrice = v;
+              m.lastTs = now2;
+              m.ageMs = 0;
+              m.pair = `${s}USD`;
+              m.quote = 'USD';
+              m.exchange = 'Kraken' as const; // marca como fallback público (Kraken/CryptoCompare)
+              if (m.state !== 'LIVE') m.state = 'LIVE';
+              const tick: RealtimeTick = { symbol: s, price: v, ts: now2, exchange: 'Kraken', pair: `${s}USD`, quote: 'USD' };
+              for (const l of listeners) l(tick);
+            }
+            emitMeta();
+          }
+        } catch {}
+      }
     }
   }, 5000);
 }
