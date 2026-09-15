@@ -58,8 +58,15 @@ async function boot() {
     shared.rateLimited = false;
     emit();
   } catch (e) {
-    shared.error = e instanceof Error ? e.message : 'Falha no universo crypto';
-    shared.rateLimited = /429|rate limit/i.test(shared.error);
+    const raw = e instanceof Error ? e.message : 'Falha no universo crypto';
+    // Mensagem amigável: evita "Failed to fetch" técnico em inglês
+    const friendly = /Failed to fetch|NetworkError|fetch|load failed/i.test(raw)
+      ? 'rede indisponível'
+      : /429|rate limit/i.test(raw)
+        ? 'rate limit (CoinGecko)'
+        : raw;
+    shared.error = friendly;
+    shared.rateLimited = /429|rate limit/i.test(raw);
     shared.done = true;
     emit();
   }

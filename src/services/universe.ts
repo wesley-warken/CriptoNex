@@ -108,6 +108,22 @@ export async function fetchCryptoUniverse(
         backoff = Math.min(backoff * 2, 60000);
         continue;
       }
+      // Falha de rede genérica (Failed to fetch): com dados parciais, não quebra o universo
+      const msg = e instanceof Error ? e.message : String(e);
+      const isNet = /Failed to fetch|NetworkError|fetch|load failed/i.test(msg);
+      if (isNet) {
+        if (acc.length > 0) {
+          // Retorna o acumulado em cache; boot vai exibir "rede indisponível — exibindo cache"
+          await sleep(backoff);
+          // Tenta mais 2 vezes antes de desistir silenciosamente
+          if (backoff < 8000) {
+            backoff = Math.min(backoff * 2, 60000);
+            continue;
+          }
+          break;
+        }
+        throw new Error('rede indisponível');
+      }
       throw e;
     }
   }
